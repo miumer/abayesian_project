@@ -152,12 +152,12 @@ The manta-ray looking things are violin-plots which are basically the regular pr
 The box-plots in the middle show the median (the middle line of the box) and the edges of the boxes show the 25th and 75th quantiles so 50% of the data lie within the box. While also 50% of the data lie on both sides of the central line in the box.
 ```{r warning=FALSE, message=FALSE}
 #EXPLORING RAW MRR DATA TABLES AND DISTRIBUTION PLOT
-andmed <- read_csv("andmed3.csv")
+andmed <- read_csv("download (5).csv")
 
 #Reading in the data from a .csv file
 npc_dat <- andmed %>%
-  select(1,3) %>% 
-  mutate(variation = recode(variation, `28092020sumodalopta` = "A", `28092020sumodaloptb`="B")) %>% #designate A and B
+  select(1,2) %>% 
+  mutate(variation = recode(variation, `hpttgswhlopta` = "A", `hpttgswhloptb`="B")) %>% #designate A and B
   rename(firstmrr = 2)  #rename second column to "firstmrr"
 
 #Table for raw data with no transformations
@@ -171,13 +171,13 @@ raw_tab <- npc_dat %>%
             Q25 = quantile(firstmrr, prob = c(.25)),
             median = median(firstmrr),
             Q75 = quantile(firstmrr, prob = c(.75))) %>% 
-  kbl(caption="Overview of raw PC data") %>% 
+  kbl(caption="Overview of raw MRR data") %>% 
   kable_styling()
 
 #Plot for distribution of log-transformed raw data. (Look into making transformation optional?)
 raw_dist <-  npc_dat %>% 
   ggplot(aes(x = as.factor(variation), y = log(firstmrr), fill = as.factor(variation))) +
-  ggtitle("Distribution of log-transformed raw data")+
+  ggtitle("Distribution of log-transformed raw MRR data")+
   geom_violin(trim=FALSE, alpha =0.5)+
   geom_jitter(shape=10, position=position_jitter(0.05), color = "#7570B3")+
   geom_boxplot(width=0.15, fill = "white", alpha = 0.5, color = "black" )+
