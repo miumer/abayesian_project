@@ -1,51 +1,111 @@
 library(tidyverse)
-library(shiny)
-library(kableExtra)
-library(ggplot2)
 library(brms)
+library(magrittr)
+library(forcats)
+library(tidyr)
+library(modelr)
+library(ggdist)
+library(tidybayes)
+library(cowplot)
+library(ggrepel)
+library(RColorBrewer)
+library(bayestestR)
+library(scales)
+library(kableExtra)
 ui <- fluidPage(sidebarPanel(
                   fileInput("mrr_file", "Choose a .csv file", accept = ".csv"),
-                  checkboxInput("header", "Header true", TRUE),
-                  textInput("varA", label = "Variation A label", value = ""),
-                  textInput("varB", label = "Variation B label", value = ""),
+                  uiOutput('ui_varA'),
+                  uiOutput('ui_varB'),
                   checkboxInput("log", "Log Transform", TRUE),
                   actionButton("assign_vars", label = "Raw Summary!"),
                   actionButton("mrr_model", label = "Model avg MRR!")),
                 mainPanel(
                   tableOutput("raw_tabl"),
-                  fluidRow(splitLayout(cellWidths = c("50%", "50%"), plotOutput("raw_plt"), plotOutput("compare")))
+                  fluidRow(splitLayout(cellWidths = c("50%", "50%"), plotOutput("raw_plt"), plotOutput("compare"))),
+                  tableOutput("model2_tabl"),
+                  plotOutput("model2_plt_both"),
+                  plotOutput("model2_plt_dif")
                 )
               )
 
 server <- function(input, output) {
+    variations <- eventReactive(input$mrr_file, {
+      req(input$mrr_file)
+      var_names <- read.csv(input$mrr_file$datapath, header = T) %>% 
+        distinct(variation)
+      var_names <- c(var_names)
+      var_names
+    })
+    output$ui_varA <- renderUI({
+      selectInput('pick_varA',
+                  label ='Pick variation A',
+                  choices=variations(),
+                  selected = NULL, multiple = FALSE,width="450px", selectize = TRUE)
+    })
+    output$ui_varB <- renderUI({
+      selectInput('pick_varB',
+                  label ='Pick variation B',
+                  choices=variations(),
+                  selected = NULL, multiple = FALSE,width="450px", selectize = TRUE)
+    })
     npc_dat <- eventReactive(input$assign_vars, {
       req(input$mrr_file)
-      npc_dat1 <- read.csv(input$mrr_file$datapath, header = T) %>% 
+      npc_dat <- read.csv(input$mrr_file$datapath, header = T) %>% 
         select(1,2) %>% 
-        mutate(variation = recode(variation, !!sym(input$varA) := "A", !!(input$varB) := "B")) %>% 
+        mutate(variation = recode(variation, !!sym(input$pick_varA) := "A", !!sym(input$pick_varB) := "B")) %>% 
         rename(firstmrr = 2)
-      npc_dat2 <- npc_dat1 %>%  
-        mutate(A = as.numeric(as.character(factor(variation, labels=c(1,0))))) %>% 
-        mutate(B = 1-A)
-      list(npc_dat1, npc_dat2)
+      npc_dat
     })
     
-    sample <- eventReactive(input$mrr_model,{
+    model2 <- eventReactive(input$mrr_model,{
+      req(input$mrr_file)
+      npc_wide <- read.csv(input$mrr_file$datapath, header = T) %>% 
+        select(1,2) %>% 
+        mutate(variation = recode(variation, !!sym(input$pick_varA) := "A", !!(input$pick_varB) := "B")) %>% 
+        rename(firstmrr = 2) %>% 
+        mutate(A = as.numeric(as.character(factor(variation, labels=c(1,0))))) %>% 
+        mutate(B = 1-A)
       withProgress(message = "Modeling in progress. Please wait...",{
-        model2 <- brm(data = npc_dat()[[2]], family = shifted_lognormal(link_sigma = "identity"),
+        b4.3 <- brm(data = npc_wide, family = shifted_lognormal(link_sigma = "identity"),
                  bf(firstmrr ~ 0 + A + B, sigma ~ 0 + A + B), #sigma is modeled as also depending on variation
                  #prior = c(prior(student_t(3,0,1), class = b)), #Look into  more informative priors for accuracy managment
                  control = list(adapt_delta = 0.95),
                  iter = 3000, warmup = 600, chains = 4, cores = 4, #Look into this for managing computing time 
                  seed = 4)
-        post_pred <- as.data.frame(t(posterior_predict(object = model2, 
-                                                       newdata = npc_dat()[[2]][,3:4], nsamples = 1)))
-        npc_dat2 <- cbind(npc_dat()[[1]], post_pred)
-        npc_dat2
+        post_pred <- as.data.frame(t(posterior_predict(object = b4.3, 
+                                                       newdata = npc_wide[,3:4], nsamples = 1)))
+        npc_dat2 <- cbind(npc_wide[,1:2], post_pred)
+        
+        post_dist <- as.data.frame(t(posterior_epred(b4.3, nsamples = 6000)))
+        mean_samp <- cbind(npc_wide$variation, post_dist) %>%
+          distinct() %>%
+          pivot_longer(-`npc_wide$variation`) %>%    
+          pivot_wider(names_from=`npc_wide$variation`, values_from=value) %>% 
+          select(A,B) 
+        
+        #Calculations with model distribution of means
+        mrr_mean <- mean_samp %>%
+          pivot_longer(cols = c(A, B), values_to = "means", names_to = "Variation")  %>% 
+          group_by(Variation) %>% 
+          summarise(`Estimate of mean` = round(mean(means),2),
+                    `Est. error of mean` = round(sd(means),2),
+                    Q2.5 = round(quantile(means, prob = c(.025)),2),
+                    Q97.5 = round(quantile(means, prob = c(.975)),2))
+        
+        #Calculating probabikity of each variation having higher true mean MRR
+        mrr_better <- mean_samp %>%  
+          summarise(a_better = paste0(round((sum(.[,1]>.[,2])/n())*100,2),"%"),
+                    b_better = paste0(round((sum(.[,2]>.[,1])/n())*100,2),"%")) %>% 
+          pivot_longer(cols = c(a_better, b_better), values_to = "Prob. of outperforming (on mean)") %>% 
+          select("Prob. of outperforming (on mean)")
+        
+        model2_tabl <- cbind(mrr_mean, mrr_better)
+        
+        list(b4.3, npc_dat2, mean_samp, model2_tabl)
       })
    })
       
-    output$raw_tabl = function(){npc_dat()[[1]] %>%
+    output$raw_tabl = function(){npc_dat() %>%
       #filter(.[[2]] < 300) %>% #Possible to put in filter for removing outliers. Look into making optional? 
       group_by(variation) %>% 
       summarise(mean = mean(firstmrr),
@@ -60,9 +120,9 @@ server <- function(input, output) {
     )}
   
     output$raw_plt = renderPlot({
-      raw_plt <- npc_dat()[[1]] %>% 
+      raw_plt <- npc_dat() %>% 
       ggplot(aes(x = as.factor(variation), y = firstmrr, fill = as.factor(variation))) +
-      ggtitle("Distribution of log-transformed raw MRR data")+
+      ggtitle("Distribution of log-transformed \n raw MRR data")+
       geom_violin(trim=FALSE, alpha =0.5)+
       geom_jitter(shape=10, position=position_jitter(0.05), color = "#7570B3")+
       geom_boxplot(width=0.15, fill = "white", alpha = 0.5, color = "black" )+
@@ -72,9 +132,9 @@ server <- function(input, output) {
       guides(fill=guide_legend(title = "Variations"))
       
     if(input$log)
-      raw_plt <- npc_dat()[[1]] %>% 
+      raw_plt <- npc_dat() %>% 
       ggplot(aes(x = as.factor(variation), y = log(firstmrr), fill = as.factor(variation))) +
-      ggtitle("Distribution of log-transformed raw MRR data")+
+      ggtitle("Distribution of log-transformed \n raw MRR data")+
       geom_violin(trim=FALSE, alpha =0.5)+
       geom_jitter(shape=10, position=position_jitter(0.05), color = "#7570B3")+
       geom_boxplot(width=0.15, fill = "white", alpha = 0.5, color = "black" )+
@@ -85,18 +145,44 @@ server <- function(input, output) {
     return(raw_plt)
   })
     
-      output$compare <- renderPlot({sample() %>% 
-          ggplot(aes(x = as.factor(variation), y = log(.[[3]]), fill = as.factor(variation))) +
-          ggtitle("Distribution of model predicted data \n (log-transformed)")+
-          geom_violin(trim=FALSE, alpha =0.5)+
-          geom_jitter(shape=10, position=position_jitter(0.05), color = "#7570B3")+
-          geom_boxplot(width=0.15, fill = "white", alpha = 0.5, color = "black" )+
-          scale_fill_brewer(palette="Dark2")+
-          scale_x_discrete(name = "Variation")+
-          scale_y_continuous(name = "MRR", n.breaks = 20, limits = ggplot_build(raw_dist)$layout$panel_scales_y[[1]]$range$range)+
-          guides(fill=guide_legend(title = "Variations"))
+    output$compare <- renderPlot({model2()[[2]] %>% 
+        ggplot(aes(x = as.factor(variation), y = log(.[[3]]), fill = as.factor(variation))) +
+        ggtitle("Diagnostic sample dist. of model predicted data")+
+        geom_violin(trim=FALSE, alpha =0.5)+
+        geom_jitter(shape=10, position=position_jitter(0.05), color = "#7570B3")+
+        geom_boxplot(width=0.15, fill = "white", alpha = 0.5, color = "black" )+
+        scale_fill_brewer(palette="Dark2")+
+        scale_x_discrete(name = "Variation")+
+        scale_y_continuous(name = "MRR", n.breaks = 20, limits = ggplot_build(raw_dist)$layout$panel_scales_y[[1]]$range$range)+
+        guides(fill=guide_legend(title = "Variations"))
    })
-    
+    output$model2_tabl <- function(){model2()[[4]] %>% 
+        kbl(caption = "Table of model implied estimates of mean MRR per PC per variation") %>% 
+        kable_styling()
+    }
+    output$model2_plt_both <- renderPlot({model2()[[3]] %>% 
+        gather(key = "variation", value = "mean_mrr", A, B) %>% 
+        ggplot(aes(x = mean_mrr, fill = variation , color = fct_rev(variation)))+
+        ggtitle("Distributions of model implied mean MRR per PC per variation")+
+        stat_slab(alpha = .5)+
+        stat_pointinterval(position = position_dodge(width = .4, preserve = "single"))+
+        scale_fill_brewer(palette="Dark2")+
+        scale_x_continuous(name  = "Mean MRR per PC", labels = dollar_format())+
+        scale_y_continuous(NULL, breaks = NULL) +
+        guides(color = FALSE, fill = guide_legend(title=NULL))+
+        theme_bw() 
+    })
+    output$model2_plt_dif <- renderPlot({model2()[[3]] %>% 
+        transmute(dif = B - A) %>% 
+        ggplot(aes(x = dif)) +
+        ggtitle("Distribution of model implied difference of mean MRR per NPC between variations")+
+        stat_slab(alpha = .5, fill = "#7570B3")+
+        stat_pointinterval(position = position_dodge(width = .4, preserve = "single"))+
+        scale_y_continuous(NULL, breaks = NULL) +
+        scale_x_continuous(name  = "mean MRR per PC of B - mean MRR per PC of A", labels = dollar_format())+
+        theme_bw()
+      })
+    output$varnames <- renderTable({vars})
 }
 
 shinyApp(ui = ui, server = server)

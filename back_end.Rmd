@@ -154,6 +154,9 @@ The box-plots in the middle show the median (the middle line of the box) and the
 #EXPLORING RAW MRR DATA TABLES AND DISTRIBUTION PLOT
 andmed <- read_csv("download (5).csv")
 
+var_names <- andmed %>% 
+  distinct(variation)
+
 #Reading in the data from a .csv file
 npc_dat <- andmed %>%
   select(1,2) %>% 
@@ -218,7 +221,9 @@ Here one sample of the model generated posterior predictive distribution can be 
 #write "plot(b4.3)" for convergence plot (Questionable if needed in the final output)
 
 #Adding model predicted datapoints to raw data point table
-npc_dat2 <- cbind(npc_dat, as.data.frame(t(posterior_predict(object = b4.3, newdata = npc_wide[,3:4], nsamples = 1))))
+post_pred <- as.data.frame(t(posterior_predict(object = b4.3, 
+                                                       newdata = npc_wide[,3:4], nsamples = 1)))
+npc_dat2 <- cbind(npc_wide[,1:2], post_pred)
 
 #Comparing real world log-transformed raw data with model implied log-transformed data
 model_dist <- npc_dat2 %>% 
@@ -252,7 +257,8 @@ The plots shows the probability distribution of  **mean MRR per PC** for the two
 #MRR MODEL TABLES AND PLOTS
 
 #Model sample of means
-mean_samp <- cbind(npc_dat$variation, as.data.frame(t(posterior_epred(b4.3, nsamples = 6000)))) %>%
+post_dist <- as.data.frame(t(posterior_epred(b4.3, nsamples = 6000)))
+mean_samp <- cbind(npc_dat$variation, post_dist) %>%
   distinct() %>%
   pivot_longer(-`npc_dat$variation`) %>%    
   pivot_wider(names_from=`npc_dat$variation`, values_from=value) %>% 
