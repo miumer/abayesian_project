@@ -12,19 +12,20 @@ library(RColorBrewer)
 library(bayestestR)
 library(scales)
 library(kableExtra)
+library(plotly)
 ui <- fluidPage(sidebarPanel(
                   fileInput("mrr_file", "Choose a .csv file", accept = ".csv"),
                   uiOutput('ui_varA'),
                   uiOutput('ui_varB'),
                   checkboxInput("log", "Log Transform", TRUE),
                   actionButton("assign_vars", label = "Raw Summary!"),
-                  actionButton("mrr_model", label = "Model avg MRR!")),
+                  actionButton("model_mrr", label = "Model avg MRR!")),
                 mainPanel(
                   tableOutput("raw_tabl"),
                   fluidRow(splitLayout(cellWidths = c("50%", "50%"), plotOutput("raw_plt"), plotOutput("compare"))),
                   tableOutput("model2_tabl"),
-                  plotOutput("model2_plt_both"),
-                  plotOutput("model2_plt_dif")
+                  plotlyOutput("model2_plt_both"),
+                  plotlyOutput("model2_plt_dif")
                 )
               )
 
@@ -57,7 +58,7 @@ server <- function(input, output) {
       npc_dat
     })
     
-    model2 <- eventReactive(input$mrr_model,{
+    model2 <- eventReactive(input$model_mrr,{
       req(input$mrr_file)
       npc_wide <- read.csv(input$mrr_file$datapath, header = T) %>% 
         select(1,2) %>% 
@@ -104,7 +105,6 @@ server <- function(input, output) {
         list(b4.3, npc_dat2, mean_samp, model2_tabl)
       })
    })
-      
     output$raw_tabl = function(){npc_dat() %>%
       #filter(.[[2]] < 300) %>% #Possible to put in filter for removing outliers. Look into making optional? 
       group_by(variation) %>% 
@@ -123,66 +123,93 @@ server <- function(input, output) {
       raw_plt <- npc_dat() %>% 
       ggplot(aes(x = as.factor(variation), y = firstmrr, fill = as.factor(variation))) +
       ggtitle("Distribution of log-transformed \n raw MRR data")+
-      geom_violin(trim=FALSE, alpha =0.5)+
-      geom_jitter(shape=10, position=position_jitter(0.05), color = "#7570B3")+
+      geom_violin(trim=FALSE, alpha =1)+ #alpha changed from backend
+      geom_jitter(shape=10, position=position_jitter(0.05), color = "darkgoldenrod2")+ #colours changed from backend
       geom_boxplot(width=0.15, fill = "white", alpha = 0.5, color = "black" )+
-      scale_fill_brewer(palette="Dark2")+
+      scale_fill_brewer(palette="Set1")+
       scale_x_discrete(name = "Variation")+
       scale_y_continuous(name = "MRR", n.breaks = 20)+
-      guides(fill=guide_legend(title = "Variations"))
+      guides(fill=guide_legend(title = "Variations"))+
+      theme_bw()
       
     if(input$log)
       raw_plt <- npc_dat() %>% 
       ggplot(aes(x = as.factor(variation), y = log(firstmrr), fill = as.factor(variation))) +
       ggtitle("Distribution of log-transformed \n raw MRR data")+
-      geom_violin(trim=FALSE, alpha =0.5)+
-      geom_jitter(shape=10, position=position_jitter(0.05), color = "#7570B3")+
+      geom_violin(trim=FALSE, alpha =1)+ #alpha changed from backend
+      geom_jitter(shape=10, position=position_jitter(0.05), color = "darkgoldenrod1")+ #colours changed from backend
       geom_boxplot(width=0.15, fill = "white", alpha = 0.5, color = "black" )+
-      scale_fill_brewer(palette="Dark2")+
+      scale_fill_brewer(palette="Set1")+
       scale_x_discrete(name = "Variation")+
       scale_y_continuous(name = "MRR", n.breaks = 20)+
-      guides(fill=guide_legend(title = "Variations"))
+      guides(fill=guide_legend(title = "Variations"))+
+      theme_bw()
     return(raw_plt)
   })
     
     output$compare <- renderPlot({model2()[[2]] %>% 
-        ggplot(aes(x = as.factor(variation), y = log(.[[3]]), fill = as.factor(variation))) +
+        ggplot(aes(x = as.factor(variation), y = log(model2()[[2]][[3]]), fill = as.factor(variation))) +
         ggtitle("Diagnostic sample dist. of model predicted data")+
-        geom_violin(trim=FALSE, alpha =0.5)+
-        geom_jitter(shape=10, position=position_jitter(0.05), color = "#7570B3")+
+        geom_violin(trim=FALSE, alpha =1)+ #alpha changed from backend
+        geom_jitter(shape=10, position=position_jitter(0.05), color = "darkgoldenrod1")+ #colours changed from backend
         geom_boxplot(width=0.15, fill = "white", alpha = 0.5, color = "black" )+
-        scale_fill_brewer(palette="Dark2")+
+        scale_fill_brewer(palette="Set1")+
         scale_x_discrete(name = "Variation")+
         scale_y_continuous(name = "MRR", n.breaks = 20, limits = ggplot_build(raw_dist)$layout$panel_scales_y[[1]]$range$range)+
-        guides(fill=guide_legend(title = "Variations"))
+        guides(fill=guide_legend(title = "Variations"))+
+        theme_bw()
    })
     output$model2_tabl <- function(){model2()[[4]] %>% 
         kbl(caption = "Table of model implied estimates of mean MRR per PC per variation") %>% 
         kable_styling()
     }
-    output$model2_plt_both <- renderPlot({model2()[[3]] %>% 
+    output$model2_plt_both <- renderPlotly({ #plotly used so stat_slab, stat_pointinterval not used here
+     g_mod2_both <- model2()[[3]] %>% 
         gather(key = "variation", value = "mean_mrr", A, B) %>% 
-        ggplot(aes(x = mean_mrr, fill = variation , color = fct_rev(variation)))+
+        ggplot(aes(x = mean_mrr, fill = variation , color = variation))+
         ggtitle("Distributions of model implied mean MRR per PC per variation")+
-        stat_slab(alpha = .5)+
-        stat_pointinterval(position = position_dodge(width = .4, preserve = "single"))+
-        scale_fill_brewer(palette="Dark2")+
+        geom_density(alpha = 0.7)+ #alpha changed from back end
+        scale_fill_brewer(palette="Set1")+ #colours changed from back-end code
         scale_x_continuous(name  = "Mean MRR per PC", labels = dollar_format())+
         scale_y_continuous(NULL, breaks = NULL) +
         guides(color = FALSE, fill = guide_legend(title=NULL))+
         theme_bw() 
+      
+     ax <- list(
+       title = "",
+       zeroline = FALSE,
+       showline = FALSE,
+       showticklabels = FALSE,
+       ticks = "",
+       showgrid = FALSE)
+     
+      p_mod2_both <- ggplotly(g_mod2_both, tooltip= c("x", "variation")) %>% 
+        layout(yaxis = ax)
+      p_mod2_both
+      
     })
-    output$model2_plt_dif <- renderPlot({model2()[[3]] %>% 
+    output$model2_plt_dif <- renderPlotly({ #plotly used so stat_slab, stat_pointinterval not used here
+      g_mod2_dif <- model2()[[3]] %>% 
         transmute(dif = B - A) %>% 
         ggplot(aes(x = dif)) +
         ggtitle("Distribution of model implied difference of mean MRR per NPC between variations")+
-        stat_slab(alpha = .5, fill = "#7570B3")+
-        stat_pointinterval(position = position_dodge(width = .4, preserve = "single"))+
+        geom_density(alpha = 0.7, color = "#4DAF4A", fill = "#4DAF4A")+ #colours changed from back-end code
         scale_y_continuous(NULL, breaks = NULL) +
         scale_x_continuous(name  = "mean MRR per PC of B - mean MRR per PC of A", labels = dollar_format())+
         theme_bw()
+      
+      ax2 <- list(
+        title = "",
+        zeroline = FALSE,
+        showline = FALSE,
+        showticklabels = FALSE,
+        ticks = "",
+        showgrid = FALSE)
+      
+      p_mod2_dif <- ggplotly(g_mod2_dif, tooltip= c("x")) %>% 
+        layout(yaxis = ax2)
+      p_mod2_dif
       })
-    output$varnames <- renderTable({vars})
 }
 
 shinyApp(ui = ui, server = server)

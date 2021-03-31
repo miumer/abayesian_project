@@ -227,7 +227,7 @@ npc_dat2 <- cbind(npc_wide[,1:2], post_pred)
 
 #Comparing real world log-transformed raw data with model implied log-transformed data
 model_dist <- npc_dat2 %>% 
-  ggplot(aes(x = as.factor(variation), y = log(.[[3]]), fill = as.factor(variation))) +
+  ggplot(aes(x = as.factor(variation), y = log(npc_dat2[[3]]), fill = as.factor(variation))) +
   ggtitle("Distribution of model predicted data \n (log-transformed)")+
   geom_violin(trim=FALSE, alpha =0.5)+
   geom_jitter(shape=10, position=position_jitter(0.05), color = "#7570B3")+
@@ -291,8 +291,9 @@ dist_mean <- mean_samp %>%
   gather(key = "variation", value = "mean_mrr", A, B) %>% 
   ggplot(aes(x = mean_mrr, fill = variation , color = fct_rev(variation)))+
   ggtitle("Distributions of model implied mean MRR per PC per variation")+
-  stat_slab(alpha = .5)+
-  stat_pointinterval(position = position_dodge(width = .4, preserve = "single"))+
+  geom_density(alpha = 0.7)+
+  #stat_slab(alpha = .5)+
+  #stat_pointinterval(position = position_dodge(width = .4, preserve = "single"))+
   scale_fill_brewer(palette="Dark2")+
   scale_x_continuous(name  = "Mean MRR per PC", labels = dollar_format())+
   scale_y_continuous(NULL, breaks = NULL) +
