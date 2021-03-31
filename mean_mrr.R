@@ -225,7 +225,7 @@ server <- function(input, output) {
                #x1 = -1, xref = "x",
                #y0 = 0, y1 = 12, yref = "y")))
         
-        add_segments(type = "rect", x=c(quantile(model2()[[5]]$dif, probs = 1-((1-input$creds2)*0.5), names=FALSE),
+        add_segments(x=c(quantile(model2()[[5]]$dif, probs = 1-((1-input$creds2)*0.5), names=FALSE),
                                         quantile(model2()[[5]]$dif, probs = (1-input$creds2)*0.5, names = FALSE)), 
                     xend = c(quantile(model2()[[5]]$dif, probs = 1-((1-input$creds2)*0.5), names = FALSE),
                               quantile(model2()[[5]]$dif, probs = (1-input$creds2)*0.5, names = FALSE)),

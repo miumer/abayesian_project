@@ -119,7 +119,7 @@ conv_dif_dist <- posterior_samples(fit) %>%
   select(1:2) %>%
   mutate(varA_per = logit2prob(.[,1]), VarB_per = logit2prob(.[,1]+.[,2])) %>%
   select(varA_per, VarB_per) %>% 
-  transmute(dif = (varA_per-VarB_per)/mean(varA_per)) %>% 
+  transmute(dif = (varB_per-VarA_per)/mean(varA_per)) %>% 
   ggplot(aes(x = dif)) +
   ggtitle("Distribution of difference in conversion rate (visitor to pc)")+
   stat_slab(alpha = .5, fill = "#7570B3")+
