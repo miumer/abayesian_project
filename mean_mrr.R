@@ -25,7 +25,10 @@ ui <- fluidPage(sidebarPanel(
                   fluidRow(splitLayout(cellWidths = c("50%", "50%"), plotOutput("raw_plt"), plotOutput("compare"))),
                   tableOutput("model2_tabl"),
                   plotlyOutput("model2_plt_both"),
-                  plotlyOutput("model2_plt_dif")
+                  plotlyOutput("model2_plt_dif"),
+                  sliderInput("creds2",
+                              label = "Choose a credible interval",
+                              value = 0.68, min = 0.01, max = 0.999)
                 )
               )
 
@@ -102,7 +105,10 @@ server <- function(input, output) {
         
         model2_tabl <- cbind(mrr_mean, mrr_better)
         
-        list(b4.3, npc_dat2, mean_samp, model2_tabl)
+        mean_dif <- mean_samp %>% 
+          transmute(dif = B - A)
+          
+        list(b4.3, npc_dat2, mean_samp, model2_tabl, mean_dif)
       })
    })
     output$raw_tabl = function(){npc_dat() %>%
@@ -189,8 +195,7 @@ server <- function(input, output) {
       
     })
     output$model2_plt_dif <- renderPlotly({ #plotly used so stat_slab, stat_pointinterval not used here
-      g_mod2_dif <- model2()[[3]] %>% 
-        transmute(dif = B - A) %>% 
+      g_mod2_dif <- model2()[[5]] %>% 
         ggplot(aes(x = dif)) +
         ggtitle("Distribution of model implied difference of mean MRR per NPC between variations")+
         geom_density(alpha = 0.7, color = "#4DAF4A", fill = "#4DAF4A")+ #colours changed from back-end code
@@ -207,8 +212,25 @@ server <- function(input, output) {
         showgrid = FALSE)
       
       p_mod2_dif <- ggplotly(g_mod2_dif, tooltip= c("x")) %>% 
-        layout(yaxis = ax2)
-      p_mod2_dif
+        layout(yaxis = ax2) %>%  
+          #shapes = list(
+          #list(type = "rect",
+               #fillcolor = "green", line = list(color = "red"), opacity = 0.9,
+               #x0 = 0, 
+               #x1 = 7, xref = "x",
+               #y0 = 0, y1 = 12, yref = "y"),
+          #list(type = "rect",
+               #fillcolor = "green", line = list(color = "green"), opacity = 0.9,
+               #x0 = -5, 
+               #x1 = -1, xref = "x",
+               #y0 = 0, y1 = 12, yref = "y")))
+        
+        add_segments(type = "rect", x=c(quantile(model2()[[5]]$dif, probs = 1-((1-input$creds2)*0.5), names=FALSE),
+                                        quantile(model2()[[5]]$dif, probs = (1-input$creds2)*0.5, names = FALSE)), 
+                    xend = c(quantile(model2()[[5]]$dif, probs = 1-((1-input$creds2)*0.5), names = FALSE),
+                              quantile(model2()[[5]]$dif, probs = (1-input$creds2)*0.5, names = FALSE)),
+                    y=c(0,0), yend= c(12,12), line=list(color=c("darkgreen", "darkgreen"), width = c(4,4))) 
+        p_mod2_dif
       })
 }
 

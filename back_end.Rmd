@@ -286,6 +286,9 @@ mrr_tab <- cbind(mrr_mean, mrr_better) %>%
   kbl(caption = "Table of model implied estimates of mean/median MRR per PC per variation") %>% 
   kable_styling()
 
+mean_dif <- mean_samp %>% 
+  transmute(dif = B - A)
+
 #Distribution plot of mean MRR per NPC for both variations
 dist_mean <- mean_samp %>%
   gather(key = "variation", value = "mean_mrr", A, B) %>% 
@@ -301,8 +304,7 @@ dist_mean <- mean_samp %>%
   theme_bw() 
 
 #Distribution plot of difference of model implied mean MRR per PC
-dist_dif_mean <- mean_samp %>% 
-  transmute(dif = A - B) %>% 
+dist_dif_mean <- mean_dif %>% 
   ggplot(aes(x = dif)) +
   ggtitle("Distribution of model implied difference of mean MRR per NPC between variations")+
   stat_slab(alpha = .5, fill = "#7570B3")+
