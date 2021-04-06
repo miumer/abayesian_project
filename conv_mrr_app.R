@@ -14,6 +14,8 @@ library(scales)
 library(kableExtra)
 library(plotly)
 library(shiny)
+library(HDInterval)
+library(shinyBS)
 
 logit2prob <- function(logit){
   odds <- exp(logit)
@@ -28,46 +30,79 @@ uplift <- function(x,y){
   return(uplift)
 }
 
-ui <- fluidPage(sidebarPanel(
+ui <- fluidPage(
+  titlePanel("A random bayesian analysis tool"),
+  sidebarPanel(
   numericInput(
     inputId="Avisitor",
-    label= "Variation A New visitors", value=0),
+    label= "Variation A New visitors", value = NULL, width = "50%"),
   numericInput(
     inputId="Bvisitor",
-    label= "Variation B New visitors", value=0),
+    label= "Variation B New visitors", value = NULL, width = "50%"),
   numericInput(
     inputId="Aconversion",
-    label= "Variation A Conversions", value=0),
+    label= "Variation A Conversions",  value = NULL, width = "50%"),
   numericInput(
     inputId="Bconversion",
-    label= "Variation B conversions", value=0),
+    label= "Variation B conversions",  value = NULL, width = "50%"),
   actionButton(inputId="go", label= "Analyze Conversion!"),
+  hr(),
   fileInput("mrr_file", "Choose a .csv file", accept = ".csv"),
   uiOutput('ui_varA'),
   uiOutput('ui_varB'),
   checkboxInput("log", "Log Transform", TRUE),
+  #checkboxInput("diag", "Check performance", FALSE),
   actionButton("assign_vars", label = "Raw Summary!"),
-  actionButton("model_mrr", label = "Model avg MRR!")),
+  actionButton("model_mrr", label = "Model avg customer mrr!"),
+  hr(),
+  actionButton("model_mrr_and_conv", label = "Model avg visitor mrr!")
+  ),
   mainPanel(
-    htmlOutput("convtab"),
-    plotlyOutput("convrdist"),
-    plotlyOutput("convdifdist"),
-    sliderInput("creds1",
-                label = "Choose a credible interval",
-                value = 0.68, min = 0.01, max = 0.999),
-    tableOutput("raw_tabl"),
-    fluidRow(splitLayout(cellWidths = c("50%", "50%"), plotOutput("raw_plt"), plotOutput("compare"))),
-    tableOutput("model2_tabl"),
-    plotlyOutput("model2_plt_both"),
-    plotlyOutput("model2_plt_dif"),
-    sliderInput("creds2",
-                label = "Choose a credible interval",
-                value = 0.68, min = 0.01, max = 0.999)
+    tabsetPanel(
+      tabPanel(
+        "Conversion model",
+        p(""),
+        tableOutput("convtab"),
+        plotlyOutput("convrdist"),
+        plotlyOutput("convdifdist"),
+        uiOutput("conv_creds")
+      ),
+      tabPanel(
+      "Raw data",
+      p(""),
+      tableOutput("raw_tabl"),
+      #fluidRow(splitLayout(cellWidths = c("50%", "50%"), plotOutput("raw_plt"), plotOutput("compare")))
+      plotOutput("raw_plt",
+                 height = "800px")
+    ),
+      tabPanel(
+      "Customer mean mrr model",
+      p(""),
+      tableOutput("model2_tabl"),
+      plotlyOutput("model2_plt_both"),
+      plotlyOutput("model2_plt_dif"),
+      uiOutput("mrr_creds")
+    ),
+      tabPanel(
+      "Visitor mean mrr model",
+      p(""),
+      tableOutput("mrr_per_visitor_tab"),
+      plotlyOutput("overall_dist"),
+      uiOutput("mean_btn"),
+      plotlyOutput("overall_dist_dif"),
+      uiOutput("mrr_v_creds")
+    )
+    )
   )
-)
+  )
 
 server <- function(input, output) {
   conv_model <- eventReactive(input$go, {
+    
+    output$conv_creds <- renderUI({
+      sliderInput("creds1",
+                  label = "Choose a credible interval",
+                  value = 0.68, min = 0.01, max = 0.999)})
     
     conv_dat <- tibble(variation = c("A", "B"),
            n = c(input$Avisitor, input$Bvisitor),
@@ -110,16 +145,20 @@ server <- function(input, output) {
     conv_dif_dist <- posterior_samples(fit) %>%
       select(1:2) %>%
       mutate(varA_per = logit2prob(.[,1]), VarB_per = logit2prob(.[,1]+.[,2])) %>%
+      mutate(varA_per = 100*varA_per,
+             VarB_per = 100*VarB_per) %>% 
       select(varA_per, VarB_per) %>% 
-      transmute(dif = (VarB_per-varA_per)*100)
+      transmute(dif = (VarB_per-varA_per))
     
     list(conv_dat, fit, outperforming, conv_tab, conv_dist_tab, conv_dif_tab, conv_dif_dist)
         })
   
-    output$convtab <- renderText({conv_model()[[4]] %>% 
+    output$convtab <- function(){conv_model()[[4]] %>% 
         kbl(caption = "Conversion rate statistics") %>% 
         kable_styling()
-    })
+    }
+    
+    
       
     output$convrdist <- renderPlotly({
       g_conv_both <- conv_model()[[5]] %>% 
@@ -148,10 +187,35 @@ server <- function(input, output) {
     
     output$convdifdist <- renderPlotly({
       
-      g_conv_dif<- conv_model()[[6]] %>% 
+      pre_g_conv_dif <- conv_model()[[7]] %>% 
         ggplot(aes(x = dif)) +
+        geom_density()
+      
+      dens1 <- ggplot_build(pre_g_conv_dif)$data[[1]]
+      
+      g_conv_dif <- ggplot(data = conv_model()[[7]], aes(x=dif))+
         ggtitle("Distribution of difference in conversion rate (visitor to npc or pc)")+
-        geom_density(alpha = 0.7, color = "#4DAF4A", fill = "#4DAF4A")+
+        geom_density()+
+        geom_area(data = dens1 %>% filter(x > 0),
+                  aes(x=x,y=y),
+                  fill = "#377EB8",
+                  color = "#377EB8",
+                  alpha = 0.8)+
+        geom_area(data = dens1 %>% filter(x < 0),
+                  aes(x=x,y=y),
+                  fill = "#E41A1C",
+                  color = "#E41A1C",
+                  alpha = 0.8)+
+        geom_area(data = dens1 %>% filter(x < quantile(conv_model()[[7]]$dif, probs = (1-input$creds1)*0.5, names = FALSE)),
+          aes(x=x,y=y),
+          fill = "black",
+          color = "black",
+          alpha = 0.5)+
+        geom_area(data = dens1 %>% filter(x > quantile(conv_model()[[7]]$dif, probs = 1-((1-input$creds1)*0.5), names=FALSE)),
+          aes(x=x,y=y),
+          fill = "black",
+          color = "black",
+          alpha = 0.5)+
         scale_x_continuous(name  = "Difference in conversion Rate", labels = percent)+
         scale_y_continuous(NULL, breaks = NULL) +
         guides(color = FALSE, fill = guide_legend(title=NULL))+
@@ -166,14 +230,16 @@ server <- function(input, output) {
         showgrid = FALSE)
       
       p_mod2_dif <- ggplotly(g_conv_dif, tooltip= c("x")) %>% 
-        layout(yaxis = ax2) %>% 
-        add_segments(x=c(quantile(conv_model()[[7]]$dif, probs = 1-((1-input$creds1)*0.5), names=FALSE),
-                         quantile(conv_model()[[7]]$dif, probs = (1-input$creds1)*0.5, names = FALSE)), 
-                     xend = c(quantile(conv_model()[[7]]$dif, probs = 1-((1-input$creds1)*0.5), names = FALSE),
-                              quantile(conv_model()[[7]]$dif, probs = (1-input$creds1)*0.5, names = FALSE)),
-                     y=c(0,0), yend= c(12,12), line=list(color=c("darkgreen", "darkgreen"), width = c(4,4))) 
+        layout(yaxis = ax2) #%>% 
+        #add_segments(x=c(quantile(conv_model()[[7]]$dif, probs = 1-((1-input$creds1)*0.5), names=FALSE),
+                         #quantile(conv_model()[[7]]$dif, probs = (1-input$creds1)*0.5, names = FALSE)), 
+                     #xend = c(quantile(conv_model()[[7]]$dif, probs = 1-((1-input$creds1)*0.5), names = FALSE),
+                              #quantile(conv_model()[[7]]$dif, probs = (1-input$creds1)*0.5, names = FALSE)),
+                     #y=c(0,0), yend= c(12,12), line=list(color=c("darkgreen", "darkgreen"), width = c(4,4))) 
       p_mod2_dif
       }) 
+    
+  ###Model 2
   
   variations <- eventReactive(input$mrr_file, {
     req(input$mrr_file)
@@ -198,16 +264,24 @@ server <- function(input, output) {
     req(input$mrr_file)
     npc_dat <- read.csv(input$mrr_file$datapath, header = T) %>% 
       select(1,2) %>% 
-      mutate(variation = recode(variation, !!sym(input$pick_varA) := "A", !!sym(input$pick_varB) := "B")) %>% 
+      mutate(variation = recode(variation, !!sym(input$pick_varA) := "A", !!sym(input$pick_varB) := "B")) %>%
+      filter(variation %in% c("A", "B")) %>%
       rename(firstmrr = 2)
     npc_dat
   })
   
   model2 <- eventReactive(input$model_mrr,{
     req(input$mrr_file)
+    
+    output$mrr_creds <- renderUI({
+      sliderInput("creds2",
+                  label = "Choose a credible interval",
+                  value = 0.68, min = 0.01, max = 0.999)})
+    
     npc_wide <- read.csv(input$mrr_file$datapath, header = T) %>% 
       select(1,2) %>% 
       mutate(variation = recode(variation, !!sym(input$pick_varA) := "A", !!(input$pick_varB) := "B")) %>% 
+      filter(variation %in% c("A", "B")) %>% 
       rename(firstmrr = 2) %>% 
       mutate(A = as.numeric(as.character(factor(variation, labels=c(1,0))))) %>% 
       mutate(B = 1-A)
@@ -269,44 +343,47 @@ server <- function(input, output) {
   
   output$raw_plt = renderPlot({
     raw_plt <- npc_dat() %>% 
-      ggplot(aes(x = as.factor(variation), y = firstmrr, fill = as.factor(variation))) +
+      ggplot(aes(x = as.factor(variation), y = firstmrr, fill = as.factor(variation), color = as.factor(variation))) +
       ggtitle("Distribution of log-transformed \n raw MRR data")+
-      geom_violin(trim=FALSE, alpha =1)+ #alpha changed from backend
-      geom_jitter(shape=10, position=position_jitter(0.05), color = "darkgoldenrod2")+ #colours changed from backend
+      geom_violin(trim=FALSE, alpha =1, color = FALSE)+ #alpha changed from backend
+      geom_jitter(shape=18, position=position_jitter(0.05), size = 5)+ #colours changed from backend
       geom_boxplot(width=0.15, fill = "white", alpha = 0.5, color = "black" )+
+      scale_colour_manual(values = c("#4DAF4A", "orange"), guide = FALSE)+
       scale_fill_brewer(palette="Set1")+
       scale_x_discrete(name = "Variation")+
       scale_y_continuous(name = "MRR", n.breaks = 20)+
-      guides(fill=guide_legend(title = "Variations"))+
-      theme_bw()
+      guides(fill=guide_legend(title = "Variations"))#+
+      #theme_bw()
     
     if(input$log)
       raw_plt <- npc_dat() %>% 
-        ggplot(aes(x = as.factor(variation), y = log(firstmrr), fill = as.factor(variation))) +
+        ggplot(aes(x = as.factor(variation), y = log(firstmrr), fill = as.factor(variation), color = as.factor(variation))) +
         ggtitle("Distribution of log-transformed \n raw MRR data")+
-        geom_violin(trim=FALSE, alpha =1)+ #alpha changed from backend
-        geom_jitter(shape=10, position=position_jitter(0.05), color = "darkgoldenrod1")+ #colours changed from backend
+        geom_violin(trim=FALSE, alpha =1,color=FALSE)+ #alpha changed from backend
+        geom_jitter(shape=18, position=position_jitter(0.05), size = 5)+ #colours changed from backend
         geom_boxplot(width=0.15, fill = "white", alpha = 0.5, color = "black" )+
+        scale_colour_manual(values = c("#4DAF4A", "orange"), guide = FALSE)+
         scale_fill_brewer(palette="Set1")+
         scale_x_discrete(name = "Variation")+
         scale_y_continuous(name = "MRR", n.breaks = 20)+
-        guides(fill=guide_legend(title = "Variations"))+
-        theme_bw()
+        guides(fill=guide_legend(title = "Variations"))#+
+        #theme_bw()
     return(raw_plt)
   })
   
-  output$compare <- renderPlot({model2()[[2]] %>% 
-      ggplot(aes(x = as.factor(variation), y = log(model2()[[2]][[3]]), fill = as.factor(variation))) +
-      ggtitle("Diagnostic sample dist. of model predicted data")+
-      geom_violin(trim=FALSE, alpha =1)+ #alpha changed from backend
-      geom_jitter(shape=10, position=position_jitter(0.05), color = "darkgoldenrod1")+ #colours changed from backend
-      geom_boxplot(width=0.15, fill = "white", alpha = 0.5, color = "black" )+
-      scale_fill_brewer(palette="Set1")+
-      scale_x_discrete(name = "Variation")+
-      scale_y_continuous(name = "MRR", n.breaks = 20, limits = ggplot_build(raw_dist)$layout$panel_scales_y[[1]]$range$range)+
-      guides(fill=guide_legend(title = "Variations"))+
-      theme_bw()
-  })
+  #output$compare <- renderPlot({model2()[[2]] %>% 
+      #ggplot(aes(x = as.factor(variation), y = log(model2()[[2]][[3]]), fill = as.factor(variation), color = as.factor(variation))) +
+      #ggtitle("Diagnostic sample dist. of model predicted data")+
+      #geom_violin(trim=FALSE, alpha =1, color=FALSE)+ #alpha changed from backend
+      #geom_jitter(shape=10, position=position_jitter(0.05))+ #colours changed from backend
+      #geom_boxplot(width=0.15, fill = "white", alpha = 0.5, color = "black" )+
+      #scale_colour_manual(values = c("#4DAF4A", "gold"), guide = FALSE)+
+      #scale_fill_brewer(palette="Set1")+
+      #scale_x_discrete(name = "Variation")+
+      #scale_y_continuous(name = "MRR", n.breaks = 20, limits = ggplot_build(raw_dist)$layout$panel_scales_y[[1]]$range$range)+
+      #guides(fill=guide_legend(title = "Variations"))+
+      #theme_bw()
+  #})
   output$model2_tabl <- function(){model2()[[4]] %>% 
       kbl(caption = "Table of model implied estimates of mean MRR per PC per variation") %>% 
       kable_styling()
@@ -337,10 +414,45 @@ server <- function(input, output) {
     
   })
   output$model2_plt_dif <- renderPlotly({ #plotly used so stat_slab, stat_pointinterval not used here
-    g_mod2_dif <- model2()[[5]] %>% 
+    pre_g_mod2_dif <- model2()[[5]] %>% 
       ggplot(aes(x = dif)) +
+      geom_density()
+    
+    dens2 <- ggplot_build(pre_g_mod2_dif)$data[[1]]
+    
+    g_mod2_dif <- ggplot(data = model2()[[5]], aes(x=dif))+
+      geom_density()+
       ggtitle("Distribution of model implied difference of mean MRR per NPC between variations")+
-      geom_density(alpha = 0.7, color = "#4DAF4A", fill = "#4DAF4A")+ #colours changed from back-end code
+      geom_area(data = dens2 %>% filter(x > 0),
+                aes(x=x,y=y),
+                fill = "#377EB8",
+                color = "#377EB8",
+                alpha = 0.8)+
+      geom_area(data = dens2 %>% filter(x < 0),
+                aes(x=x,y=y),
+                fill = "#E41A1C",
+                color = "#E41A1C",
+                alpha = 0.8) +
+      #geom_area(data = dens2 %>% filter(x < hdi(model2()[[5]]$dif, credMass = input$creds2)[1]),
+                #aes(x=x,y=y),
+                #fill = "black",
+                #color = "black",
+                #alpha = 0.5)+
+      #geom_area(data = dens2 %>% filter(x > hdi(model2()[[5]]$dif, credMass = input$creds2)[2]),
+                #aes(x=x,y=y),
+                #fill = "black",
+                #color = "black",
+                #alpha = 0.5)+
+      geom_area(data = dens2 %>% filter(x < quantile(model2()[[5]]$dif, probs = (1-input$creds2)*0.5, names = FALSE)),
+                aes(x=x,y=y),
+                fill = "black",
+                color = "black",
+                alpha = 0.5)+
+      geom_area(data = dens2 %>% filter(x > quantile(model2()[[5]]$dif, probs = 1-((1-input$creds2)*0.5), names=FALSE)),
+                aes(x=x,y=y),
+                fill = "black",
+                color = "black",
+                alpha = 0.5)+
       scale_y_continuous(NULL, breaks = NULL) +
       scale_x_continuous(name  = "mean MRR per PC of B - mean MRR per PC of A", labels = dollar_format())+
       theme_bw()
@@ -354,26 +466,181 @@ server <- function(input, output) {
       showgrid = FALSE)
     
     p_mod2_dif <- ggplotly(g_mod2_dif, tooltip= c("x")) %>% 
-      layout(yaxis = ax2) %>%  
-      #shapes = list(
-      #list(type = "rect",
-      #fillcolor = "green", line = list(color = "red"), opacity = 0.9,
-      #x0 = 0, 
-      #x1 = 7, xref = "x",
-      #y0 = 0, y1 = 12, yref = "y"),
-      #list(type = "rect",
-      #fillcolor = "green", line = list(color = "green"), opacity = 0.9,
-      #x0 = -5, 
-      #x1 = -1, xref = "x",
-      #y0 = 0, y1 = 12, yref = "y")))
+      layout(yaxis = ax2) # %>% 
     
-    add_segments(type = "rect", x=c(quantile(model2()[[5]]$dif, probs = 1-((1-input$creds2)*0.5), names=FALSE),
-                                    quantile(model2()[[5]]$dif, probs = (1-input$creds2)*0.5, names = FALSE)), 
-                 xend = c(quantile(model2()[[5]]$dif, probs = 1-((1-input$creds2)*0.5), names = FALSE),
-                          quantile(model2()[[5]]$dif, probs = (1-input$creds2)*0.5, names = FALSE)),
-                 y=c(0,0), yend= c(12,12), line=list(color=c("darkgreen", "darkgreen"), width = c(4,4))) 
+    #add_segments(type = "rect", x=c(quantile(model2()[[5]]$dif, probs = 1-((1-input$creds2)*0.5), names=FALSE),
+                                    #quantile(model2()[[5]]$dif, probs = (1-input$creds2)*0.5, names = FALSE)), 
+                #xend = c(quantile(model2()[[5]]$dif, probs = 1-((1-input$creds2)*0.5), names = FALSE),
+                          #quantile(model2()[[5]]$dif, probs = (1-input$creds2)*0.5, names = FALSE)),
+                 #y=c(0,0), yend= c(12,12), line=list(color=c("darkgreen", "darkgreen"), width = c(4,4))) 
     p_mod2_dif
   })
+  
+  ##Model 3
+  
+  conv_mrr_model <- eventReactive(input$model_mrr_and_conv, {
+    
+    #output$mean_btn <- renderUI({
+      #checkboxGroupButtons(
+        #inputId = "mean_btn", label = "Expected difference is:",
+        #choices = c(paste0("$",round(conv_mrr_model()[[5]],2))),
+        #justified = TRUE, status = "primary", size = "lg", width = "20%")
+    #})
+    
+    output$mean_btn <- renderUI({
+      bsButton("mean_btn", label = paste("Expected difference is:", "$",round(conv_mrr_model()[[5]],2)),
+               type = "toggle", value = TRUE, size = "large", style="info")
+    })
+    
+    
+    output$mrr_v_creds <- renderUI({
+      sliderInput("creds3",
+                  label = "Choose a credible interval",
+                  value = 0.68, min = 0.01, max = 0.999)})
+    
+    post_samp_transformed <- posterior_samples(conv_model()[[2]]) %>%
+      select(1:2) %>%
+      mutate(varA_per = logit2prob(.[,1]), VarB_per = logit2prob(.[,1]+.[,2])) %>%
+      select(varA_per, VarB_per) 
+    
+    overall_results <- model2()[[3]]%>%
+      select(A, B) %>% 
+      mutate(A_overall = A*post_samp_transformed$varA_per,
+             B_overall = B*post_samp_transformed$VarB_per) %>% 
+      select(A_overall, B_overall)
+    
+    overall_better <- overall_results%>% 
+      summarise(a_better = paste0(round((sum(.[,1]>.[,2])/n())*100,2),"%"),
+                b_better = paste0(round((sum(.[,2]>.[,1])/n())*100,2),"%")) %>% 
+      gather(key = variation, value = `Prob. of outperforming`, a_better, b_better) %>% 
+      select(`Prob. of outperforming`)
+    
+    tab_overall <- overall_results %>%
+      rename(A = "A_overall", B = "B_overall") %>% 
+      gather(key="Variation", value = "Values", A, B)%>%
+      group_by(Variation) %>% 
+      summarise(Mean = round(mean(Values),2),
+                SD = round(sd(Values),2),
+                Q2.5 = round(quantile(Values, prob = c(.025)),2),
+                Q97.5 = round(quantile(Values, prob = c(.975)),2)) %>% 
+      cbind(overall_better) %>%
+      mutate(`MRR per 1000 visitors` = 1000*Mean) 
+    
+    mean_difference <- overall_results %>% 
+      summarise(dif=mean(B_overall-A_overall))
+    
+    dist_overall <- overall_results %>%
+      gather(key = "variation", value = "overall", A_overall, B_overall)
+    
+    dist_dif_overall <- overall_results %>% 
+      transmute(dif = B_overall-A_overall)
+    
+    list(post_samp_transformed, overall_results, overall_better, tab_overall, mean_difference, dist_overall, dist_dif_overall)
+    
+  })
+  
+  
+  output$mrr_per_visitor_tab <- function(){ conv_mrr_model()[[4]] %>% 
+      kbl(caption="MRR per visitor") %>% 
+      kable_styling()}
+  
+  output$overall_dist <- renderPlotly({
+    
+    g_overall_dist <- conv_mrr_model()[[6]] %>% 
+      ggplot(aes(x = overall, fill = variation , color = variation))+
+      ggtitle("Model implied distributions of MRR per visitor")+
+      geom_density(alpha = 0.7)+
+      scale_fill_brewer(palette="Set1")+
+      scale_x_continuous(name  = "MRR per visitor", labels = dollar_format())+
+      scale_y_continuous(NULL, breaks = NULL) +
+      guides(color = FALSE, fill = guide_legend(title=NULL))+
+      theme_bw() 
+    
+    
+    ax2 <- list(
+      title = "",
+      zeroline = FALSE,
+      showline = FALSE,
+      showticklabels = FALSE,
+      ticks = "",
+      showgrid = FALSE)
+    
+    p_overall_dist <- ggplotly(g_overall_dist, tooltip= c("x", "variation")) %>% 
+      layout(yaxis = ax2)
+    p_overall_dist
+    
+  })
+  
+  output$overall_dist_dif <- renderPlotly({
+    
+    pre_g_overall_dist_dif <- conv_mrr_model()[[7]] %>%
+      ggplot(aes(x = dif))+
+      geom_density()
+    
+    dens3 <- ggplot_build(pre_g_overall_dist_dif)$data[[1]]
+    
+    g_overall_dist_dif <- ggplot(data = conv_mrr_model()[[7]], aes(x=dif))+
+      geom_density()+
+      ggtitle("Model implied distribution of difference of overall MRR per visitor")+
+      geom_area(data = dens3 %>% filter(x > 0),
+              aes(x=x,y=y),
+              fill = "#377EB8",
+              color = "#377EB8",
+              alpha = 0.8)+
+      geom_area(data = dens3 %>% filter(x < 0),
+                aes(x=x,y=y),
+                fill = "#E41A1C",
+                color = "#E41A1C",
+                alpha = 0.8) +
+      #geom_area(data = dens2 %>% filter(x < hdi(conv_mrr_model()[[7]]$dif, credMass = input$creds3)[1]),
+                #aes(x=x,y=y),
+                #fill = "black",
+                #color = "black",
+                #alpha = 0.5)+
+      #geom_area(data = dens2 %>% filter(x > hdi(conv_mrr_model()[[7]]$dif, credMass = input$creds3)[2]),
+                #aes(x=x,y=y),
+                #fill = "black",
+                #color = "black",
+                #alpha = 0.5)+
+      geom_area(data = dens3 %>% filter(x < quantile(conv_mrr_model()[[7]]$dif, probs = (1-input$creds3)*0.5, names = FALSE)),
+                aes(x=x,y=y),
+                fill = "black",
+                color = "black",
+                alpha = 0.5)+
+      geom_area(data = dens3 %>% filter(x > quantile(conv_mrr_model()[[7]]$dif, probs = 1-((1-input$creds3)*0.5), names=FALSE)),
+                aes(x=x,y=y),
+                fill = "black",
+                color = "black",
+                alpha = 0.5)+
+      scale_y_continuous(NULL, breaks = NULL) +
+      scale_x_continuous(name  = "mean MRR per PC of B - mean MRR per PC of A", labels = dollar_format())+
+      theme_bw()
+    
+    ax2 <- list(
+      title = "",
+      zeroline = FALSE,
+      showline = FALSE,
+      showticklabels = FALSE,
+      ticks = "",
+      showgrid = FALSE)
+    
+    p_overall_dist_dif <- ggplotly(g_overall_dist_dif, tooltip= c("x", "variation")) %>% 
+      layout(yaxis = ax2) 
+    
+    if(input$mean_btn == TRUE)
+      p_overall_dist_dif <- p_overall_dist_dif %>%  
+      add_segments(type="rect", x = conv_mrr_model()[[5]]$dif, xend = conv_mrr_model()[[5]]$dif, 
+                   y = 0, yend=12, line=list(color = "deepskyblue", width = 4, dash = "dash"))
+
+      #add_segments(type = "rect", x=c(quantile(conv_mrr_model()[[7]]$dif, probs = 1-((1-input$creds3)*0.5), names=FALSE),
+                                     # quantile(conv_mrr_model()[[7]]$dif, probs = (1-input$creds3)*0.5, names = FALSE)), 
+                   #xend = c(quantile(conv_mrr_model()[[7]]$dif, probs = 1-((1-input$creds3)*0.5), names = FALSE),
+                            #quantile(conv_mrr_model()[[7]]$dif, probs = (1-input$creds3)*0.5, names = FALSE)),
+                   #y=c(0,0), yend= c(12,12), line=list(color=c("darkgreen", "darkgreen"), width = c(4,4)))
+    
+    p_overall_dist_dif
+  })
+  
 }
 
 shinyApp(ui = ui, server = server)
