@@ -187,7 +187,7 @@ raw_dist <-  npc_dat %>%
   scale_fill_brewer(palette="Dark2")+
   scale_x_discrete(name = "Variation")+
   scale_y_continuous(name = "MRR", n.breaks = 20)+
-  guides(fill=guide_legend(title = "Variations"))
+  theme_bw()
 
 raw_tab
 raw_dist
