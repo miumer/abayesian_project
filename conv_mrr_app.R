@@ -152,40 +152,42 @@ server <- function(input, output) {
       select(`Variation A`, `Variation B`) %>% 
       gather(key = "variation", value = "CR", `Variation A`, `Variation B`) 
     
-    #Keskmise... 
-    conv_dif_tab <- posterior_samples(fit) %>%
+    #Distribution of uplifts
+    uplift_dist <- posterior_samples(fit) %>%
       select(1:2) %>%
       mutate(varA_per = logit2prob(.[,1]), VarB_per = logit2prob(.[,1]+.[,2])) %>%
       select(varA_per, VarB_per) %>% 
       transmute(dif = (VarB_per-varA_per)/mean(varA_per))
     
-    #conv_dif_dist <- posterior_samples(fit) %>%
-      #select(1:2) %>%
-      #mutate(varA_per = logit2prob(.[,1]), VarB_per = logit2prob(.[,1]+.[,2])) %>%
-      #mutate(varA_per = 100*varA_per,
-             #VarB_per = 100*VarB_per) %>% 
-      #select(varA_per, VarB_per) %>% 
-      #transmute(dif = (VarB_per-varA_per))
-    
-    expected_conv_dif <- conv_dif_tab %>% 
+    #Expected uplift
+    expected_conv_dif <- uplift_dist %>% 
       summarise(mean = mean(dif))
     
+    #Expect uplift button
     output$mean_btn1 <- renderUI({
       bsButton("mean_btn1", label = paste0("Expected uplift is: ",round(conv_model()[[8]]$mean*100,0), "%"),
                type = "toggle", value = TRUE, size = "large", style="warning")
     })
     
-    list(conv_dat, fit, outperforming, conv_tab, conv_dist, conv_dif_tab, conv_dif_dist, expected_conv_dif)
+    list(conv_dat, fit, outperforming, conv_tab, conv_dist, uplift_dist, conv_dif_dist, expected_conv_dif)
         })
   
+
+    ########Converstion rate table
+
+  
+  
+    #Conversion rate table
     output$convtab <- function(){conv_model()[[4]] %>% 
         kbl(caption = "Conversion rate statistics") %>% 
         kable_styling()
     }
     
+    ########Two distributions plot
     
-      
     output$convrdist <- renderPlotly({
+      
+      #Both CR distributions
       g_conv_both <- conv_model()[[5]] %>% 
         ggplot(aes(x = CR, fill = variation, color = variation)) +
         ggtitle("Conversion rates for the variations")+
@@ -196,6 +198,7 @@ server <- function(input, output) {
         guides(color = FALSE, fill = guide_legend(title=NULL))+
         theme_bw()
       
+      #list to empty the y axis in plotly
       ax2 <- list(
         title = "",
         zeroline = FALSE,
@@ -204,25 +207,31 @@ server <- function(input, output) {
         ticks = "",
         showgrid = FALSE)
       
+      #plotly plot
       p_conv_both <- ggplotly(g_conv_both, tooltip= c("x", "variation")) %>% 
         layout(yaxis = ax2)
       p_conv_both
       
       })
     
+    ######### Uplift plot
+    
     output$convdifdist <- renderPlotly({
       req(input$creds1)
       
+      #Preliminary plot to extract density values on y axis to use polygons 
       pre_g_conv_dif <- conv_model()[[6]] %>% 
         ggplot(aes(x = dif)) +
         geom_density()
       
+      #extract densities
       dens1 <- ggplot_build(pre_g_conv_dif)$data[[1]]
       
+      #create plot with interactive geom_are polygons to cover area outside designated range
       g_conv_dif <- pre_g_conv_dif+
         ggtitle("Distribution of uplift (B-A)/A")+
         geom_density(color = "#4DAF4A", fill = "#4DAF4A")+
-        #geom_area(data = dens1 %>% filter(x > 0),
+        #geom_area(data = dens1 %>% filter(x > 0), #Random idea to paint areas on both sides of zero different colours
                   #aes(x=x,y=y),
                   #fill = "#377EB8",
                   #color = "#377EB8",
@@ -247,6 +256,7 @@ server <- function(input, output) {
         guides(color = FALSE, fill = guide_legend(title=NULL))+
         theme_bw()
       
+      #empty axes on plotly
       ax2 <- list(
         title = "",
         zeroline = FALSE,
@@ -255,6 +265,7 @@ server <- function(input, output) {
         ticks = "",
         showgrid = FALSE)
       
+      #Plotly with black dashed interactive lines for credible intervals
       p_mod2_dif <- ggplotly(g_conv_dif, tooltip= c("x")) %>% 
         layout(yaxis = ax2)  %>% 
         add_segments(x=c(quantile(conv_model()[[6]]$dif, probs = 1-((1-input$creds1)*0.5), names=FALSE),
@@ -263,6 +274,7 @@ server <- function(input, output) {
                               quantile(conv_model()[[6]]$dif, probs = (1-input$creds1)*0.5, names = FALSE)),
                      y=c(0,0), yend= c(999,999), line=list(color=c("black", "black"), width = c(2,2)))
       
+      #Wether to show mean with button action
       if(input$mean_btn1 == TRUE)
         p_mod2_dif <- p_mod2_dif %>%  
         add_segments(type="rect", x = conv_model()[[8]]$mean, xend = conv_model()[[8]]$mean, 
@@ -271,10 +283,14 @@ server <- function(input, output) {
       p_mod2_dif
       }) 
     
-  ###Model 2
-  
+    ############
+    ###### MODEL 2
+    ###########
+    
   variations <- eventReactive(input$mrr_file, {
     req(input$mrr_file)
+    
+    #
     var_names <- read.csv(input$mrr_file$datapath, header = T) %>% 
       distinct(variation)
     var_names <- c(var_names)
@@ -368,7 +384,8 @@ server <- function(input, output) {
       
     })
   })
-  output$raw_tabl = function(){npc_dat() %>%
+  output$raw_tabl = function(){
+    npc_dat() %>%
       filter(.[[2]] < input$outliers) %>% #Possible to put in filter for removing outliers. Look into making optional? 
       group_by(variation) %>% 
       summarise(mean = mean(firstmrr),
