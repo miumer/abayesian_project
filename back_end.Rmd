@@ -129,6 +129,10 @@ conv_dif_dist <- posterior_samples(fit) %>%
   guides(color = FALSE, fill = guide_legend(title=NULL))+
   theme_bw() 
 
+conv_dif_tab <- posterior_samples(fit) %>%
+      select(1:2) %>%
+      transmute(dif = uplift(.[[1]], .[[2]])) 
+
 conv_r_dist
 conv_dif_dist
 ```

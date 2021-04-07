@@ -17,12 +17,14 @@ library(shiny)
 library(HDInterval)
 library(shinyBS)
 
+#Function for transforming logits to probability
 logit2prob <- function(logit){
   odds <- exp(logit)
   prob <- odds / (1 + odds)
   return(prob)
 }
 
+#Uplift calculation function using the back-transformed (with logit2prob) model coefficinets
 uplift <- function(x,y){
   b_rate = logit2prob(x+y)
   dif = b_rate - logit2prob(x)
@@ -56,7 +58,7 @@ ui <- fluidPage(
   br(),
   numericInput(
     inputId="outliers",
-    label= "Remove datapoints with $$ over:", value = 99999999, width = "50%"),
+    label= "Remove datapoints with $$ over", value = 99999999, width = "50%"),
   checkboxInput("log", "Log transformed", TRUE),
   hr(),
   actionButton("model_mrr", label = "Model mean customer MRR!"),
@@ -78,7 +80,7 @@ ui <- fluidPage(
       "Raw data",
       p(""),
       tableOutput("raw_tabl"),
-      #fluidRow(splitLayout(cellWidths = c("50%", "50%"), plotOutput("raw_plt"), plotOutput("compare")))
+      #fluidRow(splitLayout(cellWidths = c("50%", "50%"), plotOutput("raw_plt"), plotOutput("compare"))) Possible diagnostics here
       plotOutput("raw_plt",
                  height = "800px")
     ),
@@ -105,24 +107,28 @@ ui <- fluidPage(
   )
 
 server <- function(input, output) {
-  conv_model <- eventReactive(input$go, {
+  conv_model <- eventReactive(input$go, { 
     
-    output$conv_creds <- renderUI({
+    output$conv_creds <- renderUI({ 
       sliderInput("creds1",
                   label = "Choose a credible interval",
                   value = 0.68, min = 0.001, max = 0.999)})
     
-    conv_dat <- tibble(variation = c("A", "B"),
+    #Data entry for binomial test
+    conv_dat <- tibble(variation = c("A", "B"), 
            n = c(input$Avisitor, input$Bvisitor),
            conversions =c(input$Aconversion, input$Bconversion))
+    
+    #Binomial model
     withProgress(message = "Modeling in progress. Please wait Mr. Strang ...",{
-    fit <- brm(family = binomial,
+    fit <- brm(family = binomial, #
                         conversions | trials(n) ~ variation,
                         data = conv_dat,
                         iter = 2000,
                         warmup = 500,
                         refresh = 0)})
     
+    #Calculating the probability of out performing for each variation
     outperforming <- posterior_samples(fit) %>%
       select(1:2) %>%
       mutate(varA_per = logit2prob(.[,1]) , VarB_per = logit2prob(.[,1]+.[,2])) %>%
@@ -132,41 +138,44 @@ server <- function(input, output) {
       gather(key = variation, value = `Prob. of outperforming`, a_better, b_better) %>% 
       select(`Prob. of outperforming`) 
     
+    #Creating the table ready numbers from the entry and outperforming numbers
     conv_tab <- conv_dat %>% 
       cbind(., outperforming) %>%
       mutate(CR = paste0(round((conversions/n)*100,2),"%")) %>%
       mutate(uplift = c("", paste0(round(uplift(posterior_summary(fit)[1,1],posterior_summary(fit)[2,1])*100,2
       ),"%"))) 
     
-    conv_dist_tab <- posterior_samples(fit) %>% 
+    #Simulated conversion rate distribution for both variations 
+    conv_dist <- posterior_samples(fit) %>% 
       select(1:2) %>%
       mutate(`Variation A` = logit2prob(.[,1]), `Variation B` = logit2prob(.[,1]+.[,2])) %>%
       select(`Variation A`, `Variation B`) %>% 
       gather(key = "variation", value = "CR", `Variation A`, `Variation B`) 
     
+    #Keskmise... 
     conv_dif_tab <- posterior_samples(fit) %>%
       select(1:2) %>%
       mutate(varA_per = logit2prob(.[,1]), VarB_per = logit2prob(.[,1]+.[,2])) %>%
       select(varA_per, VarB_per) %>% 
-      transmute(dif = (VarB_per-varA_per)/mean(varA_per)) 
+      transmute(dif = (VarB_per-varA_per)/mean(varA_per))
     
-    conv_dif_dist <- posterior_samples(fit) %>%
-      select(1:2) %>%
-      mutate(varA_per = logit2prob(.[,1]), VarB_per = logit2prob(.[,1]+.[,2])) %>%
-      mutate(varA_per = 100*varA_per,
-             VarB_per = 100*VarB_per) %>% 
-      select(varA_per, VarB_per) %>% 
-      transmute(dif = (VarB_per-varA_per))
+    #conv_dif_dist <- posterior_samples(fit) %>%
+      #select(1:2) %>%
+      #mutate(varA_per = logit2prob(.[,1]), VarB_per = logit2prob(.[,1]+.[,2])) %>%
+      #mutate(varA_per = 100*varA_per,
+             #VarB_per = 100*VarB_per) %>% 
+      #select(varA_per, VarB_per) %>% 
+      #transmute(dif = (VarB_per-varA_per))
     
-    expected_conv_dif <- conv_dif_dist %>% 
+    expected_conv_dif <- conv_dif_tab %>% 
       summarise(mean = mean(dif))
     
     output$mean_btn1 <- renderUI({
-      bsButton("mean_btn1", label = paste0("Expected difference is: ",round(conv_model()[[8]],2), "%"),
+      bsButton("mean_btn1", label = paste0("Expected uplift is: ",round(conv_model()[[8]]$mean*100,0), "%"),
                type = "toggle", value = TRUE, size = "large", style="warning")
     })
     
-    list(conv_dat, fit, outperforming, conv_tab, conv_dist_tab, conv_dif_tab, conv_dif_dist, expected_conv_dif)
+    list(conv_dat, fit, outperforming, conv_tab, conv_dist, conv_dif_tab, conv_dif_dist, expected_conv_dif)
         })
   
     output$convtab <- function(){conv_model()[[4]] %>% 
@@ -202,15 +211,16 @@ server <- function(input, output) {
       })
     
     output$convdifdist <- renderPlotly({
+      req(input$creds1)
       
-      pre_g_conv_dif <- conv_model()[[7]] %>% 
+      pre_g_conv_dif <- conv_model()[[6]] %>% 
         ggplot(aes(x = dif)) +
         geom_density()
       
       dens1 <- ggplot_build(pre_g_conv_dif)$data[[1]]
       
-      g_conv_dif <- ggplot(data = conv_model()[[7]], aes(x=dif))+
-        ggtitle("Distribution of difference in conversion rate")+
+      g_conv_dif <- pre_g_conv_dif+
+        ggtitle("Distribution of uplift (B-A)/A")+
         geom_density(color = "#4DAF4A", fill = "#4DAF4A")+
         #geom_area(data = dens1 %>% filter(x > 0),
                   #aes(x=x,y=y),
@@ -222,17 +232,17 @@ server <- function(input, output) {
                   #fill = "#E41A1C",
                   #color = "#E41A1C",
                   #alpha = 0.8)+
-        geom_area(data = dens1 %>% filter(x < quantile(conv_model()[[7]]$dif, probs = (1-input$creds1)*0.5, names = FALSE)),
+        geom_area(data = dens1 %>% filter(x < quantile(conv_model()[[6]]$dif, probs = (1-input$creds1)*0.5, names = FALSE)),
           aes(x=x,y=y),
           fill = "black",
           color = "black",
           alpha = 0.5)+
-        geom_area(data = dens1 %>% filter(x > quantile(conv_model()[[7]]$dif, probs = 1-((1-input$creds1)*0.5), names=FALSE)),
+        geom_area(data = dens1 %>% filter(x > quantile(conv_model()[[6]]$dif, probs = 1-((1-input$creds1)*0.5), names=FALSE)),
           aes(x=x,y=y),
           fill = "black",
           color = "black",
           alpha = 0.5)+
-        scale_x_continuous(name  = "Difference in conversion rate", labels = percent)+
+        scale_x_continuous(name  = "Uplift", labels = percent)+
         scale_y_continuous(NULL, breaks = NULL) +
         guides(color = FALSE, fill = guide_legend(title=NULL))+
         theme_bw()
@@ -247,10 +257,10 @@ server <- function(input, output) {
       
       p_mod2_dif <- ggplotly(g_conv_dif, tooltip= c("x")) %>% 
         layout(yaxis = ax2)  %>% 
-        add_segments(x=c(quantile(conv_model()[[7]]$dif, probs = 1-((1-input$creds1)*0.5), names=FALSE),
-                         quantile(conv_model()[[7]]$dif, probs = (1-input$creds1)*0.5, names = FALSE)), 
-                     xend = c(quantile(conv_model()[[7]]$dif, probs = 1-((1-input$creds1)*0.5), names = FALSE),
-                              quantile(conv_model()[[7]]$dif, probs = (1-input$creds1)*0.5, names = FALSE)),
+        add_segments(x=c(quantile(conv_model()[[6]]$dif, probs = 1-((1-input$creds1)*0.5), names=FALSE),
+                         quantile(conv_model()[[6]]$dif, probs = (1-input$creds1)*0.5, names = FALSE)), 
+                     xend = c(quantile(conv_model()[[6]]$dif, probs = 1-((1-input$creds1)*0.5), names = FALSE),
+                              quantile(conv_model()[[6]]$dif, probs = (1-input$creds1)*0.5, names = FALSE)),
                      y=c(0,0), yend= c(999,999), line=list(color=c("black", "black"), width = c(2,2)))
       
       if(input$mean_btn1 == TRUE)
@@ -476,6 +486,8 @@ server <- function(input, output) {
     
   })
   output$model2_plt_dif <- renderPlotly({ #plotly used so stat_slab, stat_pointinterval not used here
+    req(input$creds2)
+    
     pre_g_mod2_dif <- model2()[[5]] %>% 
       ggplot(aes(x = dif)) +
       geom_density()
@@ -632,6 +644,7 @@ server <- function(input, output) {
   })
   
   output$overall_dist_dif <- renderPlotly({
+    req(input$creds3)
     
     pre_g_overall_dist_dif <- conv_mrr_model()[[7]] %>%
       ggplot(aes(x = dif))+
