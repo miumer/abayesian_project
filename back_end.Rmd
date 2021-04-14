@@ -119,7 +119,7 @@ conv_dif_dist <- posterior_samples(fit) %>%
   select(1:2) %>%
   mutate(varA_per = logit2prob(.[,1]), VarB_per = logit2prob(.[,1]+.[,2])) %>%
   select(varA_per, VarB_per) %>% 
-  transmute(dif = (varA_per-VarB_per)/mean(varA_per)) %>% 
+  transmute(dif = (VarB_per-varA_per)/mean(varA_per)) %>% 
   ggplot(aes(x = dif)) +
   ggtitle("Distribution of difference in conversion rate (visitor to pc)")+
   stat_slab(alpha = .5, fill = "#7570B3")+
@@ -128,6 +128,10 @@ conv_dif_dist <- posterior_samples(fit) %>%
   scale_y_continuous(NULL, breaks = NULL) +
   guides(color = FALSE, fill = guide_legend(title=NULL))+
   theme_bw() 
+
+conv_dif_tab <- posterior_samples(fit) %>%
+      select(1:2) %>%
+      transmute(dif = uplift(.[[1]], .[[2]])) 
 
 conv_r_dist
 conv_dif_dist
@@ -152,12 +156,15 @@ The manta-ray looking things are violin-plots which are basically the regular pr
 The box-plots in the middle show the median (the middle line of the box) and the edges of the boxes show the 25th and 75th quantiles so 50% of the data lie within the box. While also 50% of the data lie on both sides of the central line in the box.
 ```{r warning=FALSE, message=FALSE}
 #EXPLORING RAW MRR DATA TABLES AND DISTRIBUTION PLOT
-andmed <- read_csv("andmed3.csv")
+andmed <- read_csv("download (5).csv")
+
+var_names <- andmed %>% 
+  distinct(variation)
 
 #Reading in the data from a .csv file
 npc_dat <- andmed %>%
-  select(1,3) %>% 
-  mutate(variation = recode(variation, `28092020sumodalopta` = "A", `28092020sumodaloptb`="B")) %>% #designate A and B
+  select(1,2) %>% 
+  mutate(variation = recode(variation, `hpttgswhlopta` = "A", `hpttgswhloptb`="B")) %>% #designate A and B
   rename(firstmrr = 2)  #rename second column to "firstmrr"
 
 #Table for raw data with no transformations
@@ -171,20 +178,20 @@ raw_tab <- npc_dat %>%
             Q25 = quantile(firstmrr, prob = c(.25)),
             median = median(firstmrr),
             Q75 = quantile(firstmrr, prob = c(.75))) %>% 
-  kbl(caption="Overview of raw PC data") %>% 
+  kbl(caption="Overview of raw MRR data") %>% 
   kable_styling()
 
 #Plot for distribution of log-transformed raw data. (Look into making transformation optional?)
 raw_dist <-  npc_dat %>% 
   ggplot(aes(x = as.factor(variation), y = log(firstmrr), fill = as.factor(variation))) +
-  ggtitle("Distribution of log-transformed raw data")+
+  ggtitle("Distribution of log-transformed raw MRR data")+
   geom_violin(trim=FALSE, alpha =0.5)+
   geom_jitter(shape=10, position=position_jitter(0.05), color = "#7570B3")+
   geom_boxplot(width=0.15, fill = "white", alpha = 0.5, color = "black" )+
   scale_fill_brewer(palette="Dark2")+
   scale_x_discrete(name = "Variation")+
   scale_y_continuous(name = "MRR", n.breaks = 20)+
-  guides(fill=guide_legend(title = "Variations"))
+  theme_bw()
 
 raw_tab
 raw_dist
@@ -218,11 +225,13 @@ Here one sample of the model generated posterior predictive distribution can be 
 #write "plot(b4.3)" for convergence plot (Questionable if needed in the final output)
 
 #Adding model predicted datapoints to raw data point table
-npc_dat2 <- cbind(npc_dat, as.data.frame(t(posterior_predict(object = b4.3, newdata = npc_wide[,3:4], nsamples = 1))))
+post_pred <- as.data.frame(t(posterior_predict(object = b4.3, 
+                                                       newdata = npc_wide[,3:4], nsamples = 1)))
+npc_dat2 <- cbind(npc_wide[,1:2], post_pred)
 
 #Comparing real world log-transformed raw data with model implied log-transformed data
 model_dist <- npc_dat2 %>% 
-  ggplot(aes(x = as.factor(variation), y = log(.[[3]]), fill = as.factor(variation))) +
+  ggplot(aes(x = as.factor(variation), y = log(npc_dat2[[3]]), fill = as.factor(variation))) +
   ggtitle("Distribution of model predicted data \n (log-transformed)")+
   geom_violin(trim=FALSE, alpha =0.5)+
   geom_jitter(shape=10, position=position_jitter(0.05), color = "#7570B3")+
@@ -252,7 +261,8 @@ The plots shows the probability distribution of  **mean MRR per PC** for the two
 #MRR MODEL TABLES AND PLOTS
 
 #Model sample of means
-mean_samp <- cbind(npc_dat$variation, as.data.frame(t(posterior_epred(b4.3, nsamples = 6000)))) %>%
+post_dist <- as.data.frame(t(posterior_epred(b4.3, nsamples = 6000)))
+mean_samp <- cbind(npc_dat$variation, post_dist) %>%
   distinct() %>%
   pivot_longer(-`npc_dat$variation`) %>%    
   pivot_wider(names_from=`npc_dat$variation`, values_from=value) %>% 
@@ -280,13 +290,17 @@ mrr_tab <- cbind(mrr_mean, mrr_better) %>%
   kbl(caption = "Table of model implied estimates of mean/median MRR per PC per variation") %>% 
   kable_styling()
 
+mean_dif <- mean_samp %>% 
+  transmute(dif = B - A)
+
 #Distribution plot of mean MRR per NPC for both variations
 dist_mean <- mean_samp %>%
   gather(key = "variation", value = "mean_mrr", A, B) %>% 
   ggplot(aes(x = mean_mrr, fill = variation , color = fct_rev(variation)))+
   ggtitle("Distributions of model implied mean MRR per PC per variation")+
-  stat_slab(alpha = .5)+
-  stat_pointinterval(position = position_dodge(width = .4, preserve = "single"))+
+  geom_density(alpha = 0.7)+
+  #stat_slab(alpha = .5)+
+  #stat_pointinterval(position = position_dodge(width = .4, preserve = "single"))+
   scale_fill_brewer(palette="Dark2")+
   scale_x_continuous(name  = "Mean MRR per PC", labels = dollar_format())+
   scale_y_continuous(NULL, breaks = NULL) +
@@ -294,8 +308,7 @@ dist_mean <- mean_samp %>%
   theme_bw() 
 
 #Distribution plot of difference of model implied mean MRR per PC
-dist_dif_mean <- mean_samp %>% 
-  transmute(dif = A - B) %>% 
+dist_dif_mean <- mean_dif %>% 
   ggplot(aes(x = dif)) +
   ggtitle("Distribution of model implied difference of mean MRR per NPC between variations")+
   stat_slab(alpha = .5, fill = "#7570B3")+
