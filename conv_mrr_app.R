@@ -169,7 +169,7 @@ server <- function(input, output) {
                type = "toggle", value = TRUE, size = "large", style="warning")
     })
     
-    list(conv_dat, fit, outperforming, conv_tab, conv_dist, uplift_dist, conv_dif_dist, expected_conv_dif)
+    list(conv_dat, fit, outperforming, conv_tab, conv_dist, uplift_dist, uplift_dist, expected_conv_dif)
         })
   
 
