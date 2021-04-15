@@ -1,25 +1,9 @@
 library(DT)
-library(htmlwidgets)
-###
 library(tidyverse)
 library(brms)
-library(magrittr)
-library(forcats)
-library(tidyr)
-library(modelr)
-library(ggdist)
-library(tidybayes)
-library(cowplot)
-library(ggrepel)
-library(RColorBrewer)
-library(bayestestR)
-library(scales)
-library(kableExtra)
 library(plotly)
 library(shiny)
-library(HDInterval)
 library(shinyBS)
-####
 library(shinydashboard)
 
 #Function for transforming logits to probability
