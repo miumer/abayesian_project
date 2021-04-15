@@ -1,6 +1,7 @@
 library(DT)
 library(tidyverse)
 library(brms)
+library(scales)
 library(plotly)
 library(shiny)
 library(shinyBS)
