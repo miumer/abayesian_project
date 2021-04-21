@@ -223,8 +223,6 @@ server <- function(input, output) {
 
     ########Converstion rate table output
 
-  
-  
     #Conversion rate table
     output$convtab <- DT::renderDataTable({
       datatable(conv_model()[[4]], selection = "none",
@@ -478,7 +476,7 @@ server <- function(input, output) {
                           Q25 = round(quantile(firstmrr, prob = c(.25)),2),
                           median = round(median(firstmrr),2),
                           Q75 = round(quantile(firstmrr, prob = c(.75)),2)),
-              class = "cell-border striped", rownames = FALSE, selection = "none",
+              class = "cell-border stripe", rownames = FALSE, selection = "none",
               options = list(paging = F, searching = F, ordering = F, info = FALSE),
               colnames = c("Variation", "Mean", "SD", "Max", "Min", "Q25", "Median", "Q75")) %>% 
               formatStyle(
@@ -560,9 +558,9 @@ server <- function(input, output) {
   #Table for customer mean mrr modeled data
   output$model2_tabl <- DT::renderDataTable({
     datatable(model2()[[4]],
-              class = "cell-border striped", rownames = FALSE, selection = "none",
+              class = "cell-border stripe", rownames = FALSE, selection = "none",
               options = list(paging = F, searching = F, ordering = F, info = FALSE, columnDefs = list(
-                list(targets = -1, visible=FALSE), list(className = "dt-right", targets = 2:7)))) %>% #numeric prob of outperforming used only for calculation, not displayed, and eveyrthing aligned to right
+                list(targets = -1, visible=FALSE), list(className = "dt-right", targets = 2:6)))) %>% #numeric prob of outperforming used only for calculation, not displayed, and eveyrthing aligned to right
       formatStyle(
         "Prob. of outperforming (on mean)", valueColumn = ncol(model2()[[4]]),
         background = styleColorBar(c(0,100), "deepskyblue"))%>% #intable barcharts
@@ -741,7 +739,7 @@ server <- function(input, output) {
   #Table for overview of analysis
   output$mrr_per_visitor_tab <- DT::renderDataTable({
     datatable(conv_mrr_model()[[4]],
-              class = "cell-border striped", rownames = FALSE, selection = "none",
+              class = "cell-border stripe", rownames = FALSE, selection = "none",
               options = list(paging = F, searching = F, ordering = F, info = FALSE, columnDefs = list(
                 list(targets = -1, visible=FALSE),list(className = "dt-right", targets = 5)))) %>% 
       formatStyle(
