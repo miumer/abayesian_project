@@ -22,7 +22,7 @@ uplift <- function(x,y){
   return(uplift)
 }
 
-ui <- dashboardPage(
+ui <- dashboardPage( #using shinydashboard package as design basis
   dashboardHeader(title="A random bayesian analysis tool", titleWidth = 350),
   dashboardSidebar(width = 350,
     menuItem(startExpanded = TRUE,
@@ -45,13 +45,13 @@ ui <- dashboardPage(
   menuItem(startExpanded = TRUE,
            text = "Data entry and raw descriptives",
            icon = icon("stats", lib = "glyphicon"),
-  fileInput("mrr_file", "Choose a .csv file", accept = ".csv"),
-  uiOutput('ui_varA'),
+  fileInput("mrr_file", "Choose a .csv file", accept = ".csv"), 
+  uiOutput('ui_varA'), #choose variations to compare
   uiOutput('ui_varB'),
-  #checkboxInput("diag", "Check performance", FALSE),
-  actionButton("assign_vars", label = "Give it to me raw!"),
+  #checkboxInput("diag", "Check performance", FALSE), possible diagnostic button (concider adding a separate tab for model diagnostics)
+  actionButton("assign_vars", label = "Give it to me raw!"), 
   numericInput(
-    inputId="outliers",
+    inputId="outliers", #outlier removal
     label= "Remove datapoints with $$ over", value = 99999999, width = "50%"),
   checkboxInput("log", "Log transformed", TRUE)
   ),
@@ -67,7 +67,7 @@ ui <- dashboardPage(
         "Conversion model",
         p(""),
         box(
-        DT::dataTableOutput("convtab"),
+        DT::dataTableOutput("convtab"), #use datatable package for table customization 
         width = "100%",
         collapsible = TRUE),
         box(
@@ -85,11 +85,11 @@ ui <- dashboardPage(
       "Raw data",
       p(""),
       box(
-      DT::dataTableOutput("raw_tabl"),
+      DT::dataTableOutput("raw_tabl"), 
       width = '100%',
       collapsible = TRUE),
       box(
-      #fluidRow(splitLayout(cellWidths = c("50%", "50%"), plotOutput("raw_plt"), plotOutput("compare"))) Possible diagnostics here
+      #fluidRow(splitLayout(cellWidths = c("50%", "50%"), plotOutput("raw_plt"), plotOutput("compare"))) Possible diagnostics plot
       plotOutput("raw_plt",
                  height = "800px"),
       width = '100%',
@@ -141,6 +141,11 @@ ui <- dashboardPage(
 server <- function(input, output) {
   conv_model <- eventReactive(input$go, { 
     
+    #######
+    #####MODEL 1 CONVERSION RATE 
+    #######
+    
+    #credible interval slider
     output$conv_creds <- renderUI({ 
       sliderInput("creds1",
                   label = "Choose a credible interval",
@@ -170,6 +175,7 @@ server <- function(input, output) {
       gather(key = variation, value = `Prob. of outperforming`, a_better, b_better) %>% 
       select(`Prob. of outperforming`) 
     
+    #calculating probability of outperforming
     outperforming_num <- posterior_samples(fit) %>%
       select(1:2) %>%
       mutate(varA_per = logit2prob(.[,1]) , VarB_per = logit2prob(.[,1]+.[,2])) %>%
@@ -215,17 +221,17 @@ server <- function(input, output) {
         })
   
 
-    ########Converstion rate table
+    ########Converstion rate table output
 
   
   
     #Conversion rate table
     output$convtab <- DT::renderDataTable({
-      datatable(conv_model()[[4]],
-                class = "compact hover",
-                options = list(paging = F, searching = F, ordering = F, 
+      datatable(conv_model()[[4]], selection = "none",
+                class = "cell-border stripe", rownames = FALSE,
+                options = list(paging = F, searching = F, ordering = F, info = FALSE,
                                columnDefs = list(
-                  list(targets = -1, visible=FALSE), list(className = "dt-right", targets = 4:6))),
+                  list(targets = -1, visible=FALSE), list(className = "dt-right", targets = 3:6))),
                 colnames = c("Variation", "Sample size", "Conversions", "Prob. of outperforming", "CR", "Uplift", "temp")) %>% 
         formatStyle(
           "Prob. of outperforming", valueColumn = ncol(conv_model()[[4]]),
@@ -239,7 +245,7 @@ server <- function(input, output) {
 
     })
     
-    ########Two distributions plot
+    ########Two distributions plot output
     
     output$convrdist <- renderPlotly({
       
@@ -249,7 +255,7 @@ server <- function(input, output) {
         ggtitle("Conversion rates for the variations")+
         geom_density(alpha = 0.7)+
         scale_fill_brewer(palette="Set1")+
-        scale_x_continuous(name  = "Conversion rate", labels = percent)+
+        scale_x_continuous(name  = "Conversion rate", breaks = scales::pretty_breaks(n = 10), labels = label_percent(accuracy = 0.01))+
         scale_y_continuous(NULL, breaks = NULL) +
         guides(color = FALSE, fill = guide_legend(title=NULL))+
         theme_bw()
@@ -270,7 +276,7 @@ server <- function(input, output) {
       
       })
     
-    ######### Uplift plot
+    ######### Uplift plot output
     
     output$convdifdist <- renderPlotly({
       req(input$creds1)
@@ -287,16 +293,6 @@ server <- function(input, output) {
       g_conv_dif <- pre_g_conv_dif+
         ggtitle("Distribution of uplift (B-A)/A")+
         geom_density(color = "#4DAF4A", fill = "#4DAF4A")+
-        #geom_area(data = dens1 %>% filter(x > 0), #Random idea to paint areas on both sides of zero different colours
-                  #aes(x=x,y=y),
-                  #fill = "#377EB8",
-                  #color = "#377EB8",
-                  #alpha = 0.8)+
-        #geom_area(data = dens1 %>% filter(x < 0),
-                  #aes(x=x,y=y),
-                  #fill = "#E41A1C",
-                  #color = "#E41A1C",
-                  #alpha = 0.8)+
         geom_area(data = dens1 %>% filter(x < quantile(conv_model()[[6]]$dif, probs = (1-input$creds1)*0.5, names = FALSE)),
           aes(x=x,y=y),
           fill = "black",
@@ -307,7 +303,7 @@ server <- function(input, output) {
           fill = "black",
           color = "black",
           alpha = 0.5)+
-        scale_x_continuous(name  = "Uplift", labels = percent)+
+        scale_x_continuous(name  = "Uplift", breaks = scales::pretty_breaks(n = 10), labels = label_percent(accuracy = 0.01))+
         scale_y_continuous(NULL, breaks = NULL) +
         guides(color = FALSE, fill = guide_legend(title=NULL))+
         theme_bw()
@@ -340,105 +336,126 @@ server <- function(input, output) {
       }) 
     
     ############
-    ###### MODEL 2
+    ###### Data entry preparation
     ###########
     
-  variations <- eventReactive(input$mrr_file, {
-    req(input$mrr_file)
+    #extracts filenames from entered file to variations
+  variations <- eventReactive(input$mrr_file, { #reacts to file being entered
+    req(input$mrr_file) #requires that file be entered
     
-    #
+    #file entry
     var_names <- read.csv(input$mrr_file$datapath, header = T) %>% 
       distinct(variation)
     var_names <- c(var_names)
     var_names
   })
+    
+    #variation picker for A (gives the exctracted variable names (above) as choices)
   output$ui_varA <- renderUI({
     selectInput('pick_varA',
                 label ='Pick variation A',
                 choices=variations(),
                 selected = NULL, multiple = FALSE,width="450px", selectize = TRUE)
   })
+  
+  #variation picker for B (gives the exctracted variable names (above) as choices)
   output$ui_varB <- renderUI({
     selectInput('pick_varB',
                 label ='Pick variation B',
                 choices=variations(),
                 selected = NULL, multiple = FALSE,width="450px", selectize = TRUE)
   })
-  npc_dat <- eventReactive(input$assign_vars, {
-    req(input$mrr_file)
+  #renames variations as A and B for visualisations and tables of raw data
+  npc_dat <- eventReactive(input$assign_vars, { #reacts to assign_vars (the "give it to me raw button")
+    req(input$mrr_file) #requires input file to be present 
     
     npc_dat <- read.csv(input$mrr_file$datapath, header = T) %>% 
       select(1,2) %>% 
-      mutate(variation = recode(variation, !!sym(input$pick_varA) := "A", !!sym(input$pick_varB) := "B")) %>%
+      mutate(variation = recode(variation, !!sym(input$pick_varA) := "A", !!sym(input$pick_varB) := "B")) %>% #inputs need to be converted to symbols so dplyr could handle them
       filter(variation %in% c("A", "B")) %>%
       rename(firstmrr = 2)
     
       npc_dat
   })
   
-  model2 <- eventReactive(input$model_mrr,{
+  model2 <- eventReactive(input$model_mrr,{ #reacts to  "Model mean customer MRR!" button
     req(input$mrr_file)
     
+    #creates credible interval entry user interface
     output$mrr_creds <- renderUI({
       sliderInput("creds2",
                   label = "Choose a credible interval",
                   value = 0.68, min = 0.001, max = 0.999)})
     
+    #prepares data for modelling based on variable selection 
     npc_wide <- read.csv(input$mrr_file$datapath, header = T) %>% 
       select(1,2) %>% 
       mutate(variation = recode(variation, !!sym(input$pick_varA) := "A", !!(input$pick_varB) := "B")) %>% 
       filter(variation %in% c("A", "B")) %>% 
       rename(firstmrr = 2) %>% 
       mutate(A = as.numeric(as.character(factor(variation, labels=c(1,0))))) %>% 
-      mutate(B = 1-A)
+      mutate(B = 1-A) #creates a dummy variable to reparameterize the bayesian regression model
+    
+    #The model itself
     withProgress(message = "Modeling in progress. Please wait Mr. Strang ...",{
       b4.3 <- brm(data = npc_wide, family = shifted_lognormal(link_sigma = "identity"),
-                  bf(firstmrr ~ 0 + A + B, sigma ~ 0 + A + B), #sigma is modeled as also depending on variation
-                  #prior = c(prior(student_t(3,0,1), class = b)), #Look into  more informative priors for accuracy managment
+                  bf(firstmrr ~ 0 + A + B, sigma ~ 0 + A + B), #alternative parametrisation and sigma is modeled as also depending on variation
+                  #prior = c(prior(student_t(3,0,1), class = b)), #Possibility for informative priors or prior entry for accuracy managment
                   control = list(adapt_delta = 0.95),
-                  iter = 3000, warmup = 600, chains = 4, cores = 4, #Look into this for managing computing time 
+                  iter = 3000, warmup = 600, chains = 4, cores = 4, #Look into this for managing computation time (might make it less robust and require more diagnostics). With a better computer, cores should be changed
                   seed = 4)
+      
+      #extracts posterior predictive distribution. For possible diagnostics not covered in the current version.
       post_pred <- as.data.frame(t(posterior_predict(object = b4.3, 
-                                                     newdata = npc_wide[,3:4], nsamples = 1)))
+                                                     newdata = npc_wide[,3:4], nsamples = 1))) #only one sample!!!!
+      
+      #binds posterior predictive to variations  to raw data 
       npc_dat2 <- cbind(npc_wide[,1:2], post_pred)
       
+      #extracting distribution of means with the posterior_epred function. 
       post_dist <- as.data.frame(t(posterior_epred(b4.3, nsamples = 6000)))
+      
+      #dataframe with variations püaired with sampled means to create a distribution for both variations 
       mean_samp <- cbind(npc_wide$variation, post_dist) %>%
         distinct() %>%
         pivot_longer(-`npc_wide$variation`) %>%    
         pivot_wider(names_from=`npc_wide$variation`, values_from=value) %>% 
         select(A,B) 
       
-      #Calculations with model distribution of means
+      #Calculations with distribution of means
       mrr_mean <- mean_samp %>%
         pivot_longer(cols = c(A, B), values_to = "means", names_to = "Variation")  %>% 
         group_by(Variation) %>% 
-        summarise(`Estimate of mean` = round(mean(means),2),
+        summarise(`Estimate of mean` = round(mean(means),2), 
                   `Est. error of mean` = round(sd(means),2),
                   Q2.5 = round(quantile(means, prob = c(.025)),2),
                   Q97.5 = round(quantile(means, prob = c(.975)),2))
       
+      #numeric probability of out performing for sparkline style barchart inside table (light blue bars)
       mrr_better_num <- mean_samp %>%  
         summarise(a_better_num = round((sum(.[,1]>.[,2])/n())*100,2),
                   b_better_num = round((sum(.[,2]>.[,1])/n())*100,2)) %>% 
         pivot_longer(cols = c(a_better_num, b_better_num), values_to = "prob_oop_num") %>% 
         select("prob_oop_num")
       
-      #Calculating probabikity of each variation having higher true mean MRR
+      #Calculating probabikity of each variation having higher mean MRR as character
       mrr_better <- mean_samp %>%  
         summarise(a_better = paste0(round((sum(.[,1]>.[,2])/n())*100,2),"%"),
                   b_better = paste0(round((sum(.[,2]>.[,1])/n())*100,2),"%")) %>% 
         pivot_longer(cols = c(a_better, b_better), values_to = "Prob. of outperforming (on mean)") %>% 
         select("Prob. of outperforming (on mean)")
       
+      #binding together for a table
       model2_tabl <- cbind(mrr_mean, mrr_better, mrr_better_num)
       
+      #sample of difference of means (from distribution of A mean and B mean) 
       mean_dif <- mean_samp %>% 
         transmute(dif = B - A)
       
       expected_mean_dif <- mean_dif %>% 
         summarise(mean = mean(dif))
       
+      #orange button to show expected difference
       output$mean_btn2 <- renderUI({
         bsButton("mean_btn2", label = paste0("Expected difference is: ", "$",round(model2()[[6]],2)),
                  type = "toggle", value = TRUE, size = "large", style="warning", icon = icon("balance-scale-right"))
@@ -449,6 +466,7 @@ server <- function(input, output) {
     })
   })
   
+  #creating the data table
   output$raw_tabl <- DT::renderDataTable({
     datatable(npc_dat() %>%
                 filter(.[[2]] < input$outliers) %>% 
@@ -460,18 +478,19 @@ server <- function(input, output) {
                           Q25 = round(quantile(firstmrr, prob = c(.25)),2),
                           median = round(median(firstmrr),2),
                           Q75 = round(quantile(firstmrr, prob = c(.75)),2)),
-              class = "compact hover",
-              options = list(paging = F, searching = F, ordering = F),
+              class = "cell-border striped", rownames = FALSE, selection = "none",
+              options = list(paging = F, searching = F, ordering = F, info = FALSE),
               colnames = c("Variation", "Mean", "SD", "Max", "Min", "Q25", "Median", "Q75")) %>% 
               formatStyle(
                 "mean",
-                background = styleColorBar(c(0,mean(npc_dat()[,2])*2), "deepskyblue"))%>% 
+                background = styleColorBar(c(0,mean(npc_dat()[,2])*2), "deepskyblue"))%>% #miniature barchart based on raw numbers
               formatStyle(
                 "variation",
-                backgroundColor = styleEqual(c("A", "B"), c("#E41A1C", "#377EB8")))
+                backgroundColor = styleEqual(c("A", "B"), c("#E41A1C", "#377EB8"))) #variation colouring
         
   })
   
+  #Raw data plot with log-transformed unticked
   output$raw_plt = renderPlot({
     raw_plt <- npc_dat() %>% 
       filter(.[[2]] < input$outliers) %>%
@@ -501,6 +520,7 @@ server <- function(input, output) {
             legend.text=element_text(size=13))+
       theme(legend.key.size = unit(2,"line"))
     
+    #If log-tranformation is ticked
     if(input$log)
       raw_plt <- npc_dat() %>% 
         filter(.[[2]] < input$outliers) %>%
@@ -533,47 +553,38 @@ server <- function(input, output) {
       raw_plt
   })
   
-  #output$compare <- renderPlot({model2()[[2]] %>% 
-      #ggplot(aes(x = as.factor(variation), y = log(model2()[[2]][[3]]), fill = as.factor(variation), color = as.factor(variation))) +
-      #ggtitle("Diagnostic sample dist. of model predicted data")+
-      #geom_violin(trim=FALSE, alpha =1, color=FALSE)+ #alpha changed from backend
-      #geom_jitter(shape=10, position=position_jitter(0.05))+ #colours changed from backend
-      #geom_boxplot(width=0.15, fill = "white", alpha = 0.5, color = "black" )+
-      #scale_colour_manual(values = c("#4DAF4A", "gold"), guide = FALSE)+
-      #scale_fill_brewer(palette="Set1")+
-      #scale_x_discrete(name = "Variation")+
-      #scale_y_continuous(name = "MRR", n.breaks = 20, limits = ggplot_build(raw_dist)$layout$panel_scales_y[[1]]$range$range)+
-      #guides(fill=guide_legend(title = "Variations"))+
-      #theme_bw()
-  #})
+  #######
+  ###MODEL 2 - CUSTOMER MEAN MRR DATA
+  ######
   
-  
+  #Table for customer mean mrr modeled data
   output$model2_tabl <- DT::renderDataTable({
     datatable(model2()[[4]],
-              class = "compact hover",
-              options = list(paging = F, searching = F, ordering = F, columnDefs = list(
-                list(targets = -1, visible=FALSE), list(className = "dt-right", targets = 6)))) %>% 
+              class = "cell-border striped", rownames = FALSE, selection = "none",
+              options = list(paging = F, searching = F, ordering = F, info = FALSE, columnDefs = list(
+                list(targets = -1, visible=FALSE), list(className = "dt-right", targets = 2:7)))) %>% #numeric prob of outperforming used only for calculation, not displayed, and eveyrthing aligned to right
       formatStyle(
         "Prob. of outperforming (on mean)", valueColumn = ncol(model2()[[4]]),
-        background = styleColorBar(c(0,100), "deepskyblue"))%>% 
+        background = styleColorBar(c(0,100), "deepskyblue"))%>% #intable barcharts
       formatStyle(
         "Variation",
         backgroundColor = styleEqual(c("A", "B"), c("#E41A1C", "#377EB8")))
   })
-
-  output$model2_plt_both <- renderPlotly({ #plotly used so stat_slab, stat_pointinterval not used here
+  
+  #Plot for both variations distributions of means
+  output$model2_plt_both <- renderPlotly({ #plotly used so stat_slab, stat_pointinterval used in backend not used here
     g_mod2_both <- model2()[[3]] %>% 
       gather(key = "variation", value = "mean_mrr", A, B) %>% 
       ggplot(aes(x = mean_mrr, fill = variation , color = variation))+
       ggtitle("Distributions of model implied mean MRR per customer")+
       geom_density(alpha = 0.7)+ #alpha changed from back end
       scale_fill_brewer(palette="Set1")+ #colours changed from back-end code
-      scale_x_continuous(name  = "Mean MRR per customer", labels = dollar_format())+
+      scale_x_continuous(name  = "Mean MRR per customer", labels = dollar_format(), breaks = scales::pretty_breaks(n = 13))+
       scale_y_continuous(NULL, breaks = NULL) +
       guides(color = FALSE, fill = guide_legend(title=NULL))+
       theme_bw() 
     
-    ax <- list(
+    ax <- list( #empty y axis
       title = "",
       zeroline = FALSE,
       showline = FALSE,
@@ -589,25 +600,19 @@ server <- function(input, output) {
   output$model2_plt_dif <- renderPlotly({ #plotly used so stat_slab, stat_pointinterval not used here
     req(input$creds2)
     
+    #bare bones distribution in ggplot to extract polygon coordinates for shading in the next step
     pre_g_mod2_dif <- model2()[[5]] %>% 
       ggplot(aes(x = dif)) +
       geom_density()
     
+    #extracting polygon coordinates
     dens2 <- ggplot_build(pre_g_mod2_dif)$data[[1]]
     
+    #Creating the plot with extracted polygons shaded black with opacity 0.5
     g_mod2_dif <- ggplot(data = model2()[[5]], aes(x=dif))+
       geom_density(color = "#4DAF4A", fill = "#4DAF4A")+
       ggtitle("Distribution of model implied difference of mean MRR per customer between variations")+
-      #geom_area(data = dens2 %>% filter(x > 0),
-                #aes(x=x,y=y),
-                #fill = "#377EB8",
-                #color = "#377EB8",
-                #alpha = 0.8)+
-      #geom_area(data = dens2 %>% filter(x < 0),
-                #aes(x=x,y=y),
-                #fill = "#E41A1C",
-                #color = "#E41A1C",
-                #alpha = 0.8) +
+      #Possiblity of using HDI or highest density intervals hear but they behave erratically and since the distro should be normal, it doesnt matter here
       #geom_area(data = dens2 %>% filter(x < hdi(model2()[[5]]$dif, credMass = input$creds2)[1]),
                 #aes(x=x,y=y),
                 #fill = "black",
@@ -618,6 +623,7 @@ server <- function(input, output) {
                 #fill = "black",
                 #color = "black",
                 #alpha = 0.5)+
+    #using equal tailed intervals here instead
       geom_area(data = dens2 %>% filter(x < quantile(model2()[[5]]$dif, probs = (1-input$creds2)*0.5, names = FALSE)),
                 aes(x=x,y=y),
                 fill = "black",
@@ -629,7 +635,7 @@ server <- function(input, output) {
                 color = "black",
                 alpha = 0.5)+
       scale_y_continuous(NULL, breaks = NULL) +
-      scale_x_continuous(name  = "Mean MRR per customer of B - Mean MRR per customer of A", labels = dollar_format())+
+      scale_x_continuous(name  = "Mean MRR per customer of B - Mean MRR per customer of A", labels = dollar_format(), breaks = scales::pretty_breaks(n = 13))+
       theme_bw()
     
     ax2 <- list(
@@ -640,6 +646,7 @@ server <- function(input, output) {
       ticks = "",
       showgrid = FALSE)
     
+    #creating an equal tailed credibility (confidence for bayesians) interval shader for the probability
     p_mod2_dif <- ggplotly(g_mod2_dif, tooltip= c("x")) %>% 
       layout(yaxis = ax2) %>% 
       add_segments(type = "rect", x=c(quantile(model2()[[5]]$dif, probs = 1-((1-input$creds2)*0.5), names=FALSE),
@@ -648,6 +655,7 @@ server <- function(input, output) {
                           quantile(model2()[[5]]$dif, probs = (1-input$creds2)*0.5, names = FALSE)),
                  y=c(0,0), yend= c(999,999), line=list(color=c("black", "black"), width = c(2,2))) 
     
+    #clickable button to remove expected value line
     if(input$mean_btn2 == TRUE)
      p_mod2_dif <- p_mod2_dif %>%  
       add_segments(type="rect", x = model2()[[6]]$mean, xend = model2()[[6]]$mean, 
@@ -656,44 +664,52 @@ server <- function(input, output) {
     p_mod2_dif
   })
   
-  ##Model 3
+  ########
+  ###Model 3 - Mean visitor MRR
+  ########
   
-  conv_mrr_model <- eventReactive(input$model_mrr_and_conv, {
+  conv_mrr_model <- eventReactive(input$model_mrr_and_conv, { #reacts to "Analyze visitor MRR!" Button
     
+    #Orange button to show mean of distribution
     output$mean_btn <- renderUI({
       bsButton("mean_btn", label = paste("Expected difference is: ", "$",round(conv_mrr_model()[[5]],2)),
                type = "toggle", value = TRUE, size = "large", style="warning", icon = icon("balance-scale-left"))
     })
     
-    
+    #slider for credible intervals
     output$mrr_v_creds <- renderUI({
       sliderInput("creds3",
                   label = "Choose a credible interval",
                   value = 0.68, min = 0.001, max = 0.999)})
     
+    #extracts posterior sample of conversion rates as probabilities
     post_samp_transformed <- posterior_samples(conv_model()[[2]]) %>%
       select(1:2) %>%
       mutate(varA_per = logit2prob(.[,1]), VarB_per = logit2prob(.[,1]+.[,2])) %>%
       select(varA_per, VarB_per) 
     
+    #multiplies posterior of mean MRR per customer to posterior of conversion from visitor to customer for both variations
     overall_results <- model2()[[3]]%>%
       select(A, B) %>% 
       mutate(A_overall = A*post_samp_transformed$varA_per,
              B_overall = B*post_samp_transformed$VarB_per) %>% 
       select(A_overall, B_overall)
     
+    #Probability of outperforming as numeric for mini barchart on table (not visible in the table)
     overall_better_num <- overall_results%>% 
       summarise(a_better_num = round((sum(.[,1]>.[,2])/n())*100,2),
                 b_better_num = round((sum(.[,2]>.[,1])/n())*100,2)) %>% 
       gather(key = variation, value = `prob_oop_num`, a_better_num, b_better_num) %>% 
       select(prob_oop_num)
     
+    #Probability of outperforming as character for table display
     overall_better <- overall_results%>% 
       summarise(a_better = paste0(round((sum(.[,1]>.[,2])/n())*100,2),"%"),
                 b_better = paste0(round((sum(.[,2]>.[,1])/n())*100,2),"%")) %>% 
       gather(key = variation, value = `Prob. of outperforming`, a_better, b_better) %>% 
       select(`Prob. of outperforming`)
     
+    #create table as dataframe
     tab_overall <- overall_results %>%
       rename(A = "A_overall", B = "B_overall") %>% 
       gather(key="Variation", value = "Values", A, B)%>%
@@ -706,12 +722,15 @@ server <- function(input, output) {
       mutate(`MRR per 1000 visitors` = 1000*Mean) %>% 
       cbind(., overall_better_num)
     
+    #expected difference
     mean_difference <- overall_results %>% 
       summarise(dif=mean(B_overall-A_overall))
     
+    #Df ready for ggplot
     dist_overall <- overall_results %>%
       gather(key = "variation", value = "overall", A_overall, B_overall)
     
+    #Distiribution of differences
     dist_dif_overall <- overall_results %>% 
       transmute(dif = B_overall-A_overall)
     
@@ -719,12 +738,12 @@ server <- function(input, output) {
     
   })
   
-  
+  #Table for overview of analysis
   output$mrr_per_visitor_tab <- DT::renderDataTable({
     datatable(conv_mrr_model()[[4]],
-              class = "compact hover",
-              options = list(paging = F, searching = F, ordering = F, columnDefs = list(
-                list(targets = -1, visible=FALSE),list(className = "dt-right", targets = 6)))) %>% 
+              class = "cell-border striped", rownames = FALSE, selection = "none",
+              options = list(paging = F, searching = F, ordering = F, info = FALSE, columnDefs = list(
+                list(targets = -1, visible=FALSE),list(className = "dt-right", targets = 5)))) %>% 
       formatStyle(
         "Prob. of outperforming", valueColumn = ncol(conv_mrr_model()[[4]]),
         background = styleColorBar(c(0,100), "deepskyblue"))%>% 
@@ -733,6 +752,7 @@ server <- function(input, output) {
         backgroundColor = styleEqual(c("A", "B"), c("#E41A1C", "#377EB8")))
   })
   
+  #Plot for both distribution sepparately
   output$overall_dist <- renderPlotly({
     
     g_overall_dist <- conv_mrr_model()[[6]] %>% 
@@ -740,7 +760,7 @@ server <- function(input, output) {
       ggtitle("Model implied distributions of MRR per visitor")+
       geom_density(alpha = 0.7)+
       scale_fill_brewer(palette="Set1")+
-      scale_x_continuous(name  = "MRR per visitor", labels = dollar_format())+
+      scale_x_continuous(name  = "MRR per visitor", labels = dollar_format(), breaks = scales::pretty_breaks(n = 10))+
       scale_y_continuous(NULL, breaks = NULL) +
       guides(color = FALSE, fill = guide_legend(title=NULL))+
       theme_bw() 
@@ -760,6 +780,7 @@ server <- function(input, output) {
     
   })
   
+  #Plot for distribution of difference (Everything is nearly the same as previous model plots)
   output$overall_dist_dif <- renderPlotly({
     req(input$creds3)
     
@@ -772,16 +793,7 @@ server <- function(input, output) {
     g_overall_dist_dif <- ggplot(data = conv_mrr_model()[[7]], aes(x=dif))+
       geom_density(color = "#4DAF4A", fill = "#4DAF4A")+
       ggtitle("Model implied distribution of difference of MRR per visitor")+
-      #geom_area(data = dens3 %>% filter(x > 0),
-              #aes(x=x,y=y),
-              #fill = "#377EB8",
-              #color = "#377EB8",
-              #alpha = 0.8)+
-      #geom_area(data = dens3 %>% filter(x < 0),
-                #aes(x=x,y=y),
-                #fill = "#E41A1C",
-                #color = "#E41A1C",
-                #alpha = 0.8) +
+      #Again possibility for HDI here.
       #geom_area(data = dens2 %>% filter(x < hdi(conv_mrr_model()[[7]]$dif, credMass = input$creds3)[1]),
                 #aes(x=x,y=y),
                 #fill = "black",
@@ -803,7 +815,7 @@ server <- function(input, output) {
                 color = "black",
                 alpha = 0.5)+
       scale_y_continuous(NULL, breaks = NULL) +
-      scale_x_continuous(name  = "Mean MRR per visitor of B - Mean MRR per visitor of A", labels = dollar_format())+
+      scale_x_continuous(name  = "Mean MRR per visitor of B - Mean MRR per visitor of A", labels = dollar_format(), breaks = scales::pretty_breaks(n = 10))+
       theme_bw()
     
     ax2 <- list(
