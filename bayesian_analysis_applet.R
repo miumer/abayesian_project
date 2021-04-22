@@ -23,8 +23,13 @@ uplift <- function(x,y){
 }
 
 ui <- dashboardPage( #using shinydashboard package as design basis
-  dashboardHeader(title="A random bayesian analysis tool", titleWidth = 350),
+  dashboardHeader(tags$li(class="dropdown"), #dropdown class has to be used to put the pipedrive logo on on the title bar
+  title = tags$a(href="pd_logo.png", "A random bayesian analysis tool", 
+                img(src = 'pd_logo.png',
+                          height = "30px",
+                    style="float:left; margin-top:10px"), style = "color: #26292C; font-weight: 325"), titleWidth = 350),
   dashboardSidebar(width = 350,
+                   
     menuItem(startExpanded = TRUE,
       text="CR analysis",
       icon = icon("dashboard", lib = "glyphicon"),
@@ -60,7 +65,37 @@ ui <- dashboardPage( #using shinydashboard package as design basis
   ),
   dashboardBody(
     tags$head(
-      tags$style(HTML(".main-sidebar a{ font-size: 20px; }")),
+      tags$style(HTML("
+      
+        /*main header navbar*/
+        .skin-blue .main-header .navbar {
+                              background-color: #08A742;
+        }
+  
+        /* toggle button when hovered */                    
+         .skin-blue .main-header .navbar .sidebar-toggle:hover{
+                              background-color: #0D923E;
+         }
+        
+        /*Table title colour*/
+        .tabbable > .nav > li > a   {color:#0D923E}
+  
+        /*sidebar logo*/
+        .skin-blue .main-header .logo {
+                              background-color: #0D923E;
+                              color: #26292C
+        }
+        
+        /* sidebar logo when hovered */
+        .skin-blue .main-header .logo:hover {
+                              background-color: #0D923E;
+        }
+        
+         /* main sidebar */
+        .main-sidebar a{ font-size: 20px; }
+        .skin-blue .main-sidebar {
+                              background-color: #26292C;
+                              }")),
     ),
     tabsetPanel(
       tabPanel(
