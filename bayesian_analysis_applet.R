@@ -761,7 +761,9 @@ server <- function(input, output) {
     
     #Df ready for ggplot
     dist_overall <- overall_results %>%
-      gather(key = "variation", value = "overall", A_overall, B_overall)
+      gather(key = "variation", value = "overall", A_overall, B_overall) %>% 
+      mutate(variation = recode(variation, `A_overall` = "A", `B_overall` = "B"))
+  
     
     #Distiribution of differences
     dist_dif_overall <- overall_results %>% 
