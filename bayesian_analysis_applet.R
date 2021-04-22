@@ -27,7 +27,7 @@ ui <- dashboardPage( #using shinydashboard package as design basis
   title = tags$a(href="pd_logo.png", "A random bayesian analysis tool", 
                 img(src = 'pd_logo.png',
                           height = "30px",
-                    style="float:left; margin-top:10px"), style = "color: #26292C; font-weight: 325"), titleWidth = 350),
+                    style="float:left; margin-top:10px"), style = "color: #ffffff; font-weight: 325"), titleWidth = 350),
   dashboardSidebar(width = 350,
                    
     menuItem(startExpanded = TRUE,
